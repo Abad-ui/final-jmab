@@ -16,6 +16,9 @@ class User {
     public $email;
     public $password;
     public $roles = 'customer';
+    public $phone_number;
+    public $profile_picture;
+    public $user_address;
 
     
     public function __construct() {
@@ -31,7 +34,7 @@ class User {
     private function generateJWT($user) {
         $secretKey = self::getSecretKey(); 
         $issuedAt = time();
-        $expirationTime = $issuedAt + 3600; 
+        $expirationTime = $issuedAt + 604800; 
 
         $payload = [
             'iat' => $issuedAt,
@@ -44,7 +47,24 @@ class User {
         return JWT::encode($payload, $secretKey, 'HS256');
     }
 
-    
+    public static function validateJWT($token) {
+        $secretKey = self::getSecretKey();
+        try {
+            $decoded = JWT::decode($token, new Key($secretKey, 'HS256'));
+            
+            // Check if the token is expired manually
+            $current_time = time(); // current time in seconds
+            if ($decoded->exp < $current_time) {
+                // Token has expired
+                return ['success' => false, 'errors' => ['Token has expired.']];
+            }
+            
+            return ['success' => true, 'user' => (array) $decoded];
+        } catch (Exception $e) {
+            return ['success' => false, 'errors' => ['Invalid token.']];
+        }
+    }
+
     private function validateInput() {
         $errors = [];
 
@@ -137,20 +157,13 @@ class User {
             ];
         }
 
-        return $result; 
+        return [
+            'success' => false,
+            'message' => 'Invalid email or password.', 
+            'errors' => $result['errors']
+        ];
     }
 
-    public static function validateJWT($token) {
-        $secretKey = self::getSecretKey(); 
-        try {
-            $decoded = JWT::decode($token, new Key($secretKey, 'HS256'));
-            return (array) $decoded;
-        } catch (Exception $e) {
-            return null;
-        }
-    }
-    
-   
     public function authenticate($email, $password) {
         $query = 'SELECT * FROM ' . $this->table . ' WHERE email = :email';
         $stmt = $this->conn->prepare($query);
@@ -186,84 +199,94 @@ class User {
 
     
     public function getUserById($id) {
-        $query = 'SELECT id, first_name, last_name, email, roles FROM ' . $this->table . ' WHERE id = :id';
+        $query = 'SELECT id, first_name, last_name, email, roles, password, user_address, phone_number, profile_picture FROM ' . $this->table . ' WHERE id = :id';
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':id', $id);
         $stmt->execute();
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
-
     
     public function update($id, $data) {
+        $userExists = $this->getUserById($id);
+        if (!$userExists) {
+            return ['success' => false, 'errors' => ['User not found.']];
+        }
     
-    $userExists = $this->getUserById($id);
-    if (!$userExists) {
-        return ['success' => false, 'errors' => ['User not found.']];
-    }
-
-    $errors = [];
-
+        $errors = [];
     
-    if (isset($data['email']) && !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
-        $errors[] = 'Invalid email format.';
-    }
-
+        // Validate email format
+        if (isset($data['email']) && !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'Invalid email format.';
+        }
     
-    if (isset($data['email']) && $this->isEmailExists($data['email'], $id)) {
-        $errors[] = 'Email is already registered.';
-    }
-
+        // Check if email is already in use
+        if (isset($data['email']) && $this->isEmailExists($data['email'], $id)) {
+            $errors[] = 'Email is already registered.';
+        }
     
-    if (!empty($errors)) {
-        return ['success' => false, 'errors' => $errors];
-    }
-
-  
-    $updates = [];
-    $params = [':id' => $id];
-
-    foreach ($data as $key => $value) {
-        if ($key !== 'id' && $key !== 'roles') {
-            
-            if ($key === 'password') {
-                $hashedPassword = password_hash($value, PASSWORD_BCRYPT);
-                $updates[] = "{$key} = :{$key}";
-                $params[":{$key}"] = $hashedPassword;
-            } else {
-                if (isset($userExists[$key]) && $userExists[$key] != $value) {
-                    $updates[] = "{$key} = :{$key}";
-                    $params[":{$key}"] = $value;
+        // Validate first_name and last_name (Only letters allowed)
+        if (isset($data['first_name']) && !preg_match('/^[a-zA-Z ]+$/', $data['first_name'])) {
+            $errors[] = 'First name must contain only letters.';
+        }
+        if (isset($data['last_name']) && !preg_match('/^[a-zA-Z ]+$/', $data['last_name'])) {
+            $errors[] = 'Last name must contain only letters.';
+        }
+        
+        if (!empty($errors)) {
+            return ['success' => false, 'errors' => $errors];
+        }
+    
+        $updates = [];
+        $params = [':id' => $id];
+    
+        foreach ($data as $key => $value) {
+            if ($key !== 'id' && $key !== 'roles') {
+                // Ignore empty values to prevent updating with blank fields
+                if ($value === '') {  // Allow updating NULL values but ignore empty strings
+                    continue;
+                }
+        
+                if ($key === 'password') {
+                    // Check if the new password is actually different before hashing
+                    if (!password_verify($value, $userExists['password'])) {
+                        $hashedPassword = password_hash($value, PASSWORD_BCRYPT);
+                        $updates[] = "{$key} = :{$key}";
+                        $params[":{$key}"] = $hashedPassword;
+                    }
+                } else {
+                    // Ensure NULL values in the database are updated properly
+                    if (!array_key_exists($key, $userExists) || $userExists[$key] !== $value) {
+                        $updates[] = "{$key} = :{$key}";
+                        $params[":{$key}"] = $value;
+                    }
                 }
             }
         }
-    }
-
-    if (empty($updates)) {
-        return ['success' => false, 'errors' => ['No changes detected.']];
-    }
-
-    $query = 'UPDATE ' . $this->table . ' SET ' . implode(', ', $updates) . ' WHERE id = :id';
-
-    $stmt = $this->conn->prepare($query);
-
+        
     
-    foreach ($params as $param_key => $value) {
-        $stmt->bindValue($param_key, $value);
-    }
-
-    try {
-       
-        if ($stmt->execute()) {
-            return ['success' => true, 'message' => 'User updated successfully.'];
+        if (empty($updates)) {
+            return ['success' => false, 'errors' => ['No changes detected.']];
         }
-    } catch (PDOException $e) {
-        error_log('Database error: ' . $e->getMessage());
-        return ['success' => false, 'errors' => ['An error occurred. Please try again.']];
+    
+        $query = 'UPDATE ' . $this->table . ' SET ' . implode(', ', $updates) . ' WHERE id = :id';
+        $stmt = $this->conn->prepare($query);
+    
+        foreach ($params as $param_key => $value) {
+            $stmt->bindValue($param_key, $value);
+        }
+    
+        try {
+            if ($stmt->execute()) {
+                return ['success' => true, 'message' => 'User updated successfully.'];
+            }
+        } catch (PDOException $e) {
+            error_log('Database error: ' . $e->getMessage());
+            return ['success' => false, 'errors' => ['An error occurred. Please try again.']];
+        }
+    
+        return ['success' => false, 'errors' => ['Unknown error occurred.']];
     }
-
-    return ['success' => false, 'errors' => ['Unknown error occurred.']];
-}
 
     
     public function delete($id) {

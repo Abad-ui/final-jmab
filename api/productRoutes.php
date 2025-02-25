@@ -1,5 +1,4 @@
 <?php
-require_once '../model/product.php';
 require '../model/user.php'; 
 require '../vendor/autoload.php';
 require '../model/product.php';
@@ -7,8 +6,12 @@ require '../model/product.php';
 header('Content-Type: application/json');
 
 function isAdmin() {
-    $userData = authenticateAPI(); 
-    return isset($userData['roles']) && in_array('admin', is_array($userData['roles']) ? $userData['roles'] : [$userData['roles']]);
+    $userData = authenticateAPI();
+    if (isset($userData['user']['roles'])) {
+        $roles = is_array($userData['user']['roles']) ? $userData['user']['roles'] : [$userData['user']['roles']];
+        return in_array('admin', $roles);
+    }
+    return false;
 }
 
 function authenticateAPI() {
