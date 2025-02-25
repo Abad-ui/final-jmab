@@ -21,9 +21,6 @@ function authenticateAPI() {
         exit;
     }
 
-    $userData['user_id'] = $userData['sub'];
-    unset($userData['sub']);
-
     return $userData;
 }
 
@@ -79,7 +76,7 @@ if ($method === 'POST' && $endpoint === 'checkout') {
     
     if ($data['payment_method'] === 'gcash') {
         // Process GCash payment
-        $result = $order->checkout($userData['user_id'], $data['cart_ids'], 'gcash');
+        $result = $order->checkout($userData['user']['sub'], $data['cart_ids'], 'gcash');
 
         if ($result['success']) {
             http_response_code(200);
@@ -94,7 +91,7 @@ if ($method === 'POST' && $endpoint === 'checkout') {
         }
     } elseif ($data['payment_method'] === 'cod') {
         // Process COD order
-        $result = $order->checkout($userData['user_id'], $data['cart_ids'], 'cod');
+        $result = $order->checkout($userData['user']['sub'], $data['cart_ids'], 'cod');
 
         if ($result['success']) {
             http_response_code(200);

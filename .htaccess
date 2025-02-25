@@ -8,3 +8,6 @@ RewriteRule ^api/product/(.*)$ api/productRoutes.php?endpoint=$1 [QSA,L]
 
 # Routes for cart-related API endpoints
 RewriteRule ^api/cart/(.*)$ api/cartRoutes.php?endpoint=$1 [QSA,L]
+
+# Routes for oder-related API endpoints
+RewriteRule ^api/order/(.*)$ api/orderRoutes.php?endpoint=$1 [QSA,L]
