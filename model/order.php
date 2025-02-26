@@ -34,58 +34,66 @@ class Order {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // Create PayMongo Payment Link
-    public function createPaymentLink($amount, $description) {
-        $client = new Client();
-        $api_key = ''; // Replace with your actual secret key
+    public function createGcashCheckoutSession($cartItems, $first_name, $last_name, $success_url, $cancel_url, $referenceNumber) {
+        $api_url = "https://api.paymongo.com/v1/checkout_sessions";
+        $api_key = "sk_test_upzoTe7kRXHL9TGogLFjuaji";
+    
+        $lineItems = array_map(function ($item) {
+            return [
+                "currency" => "PHP",
+                "amount" => $item['product_price'] * 100, // Convert to cents
+                "name" => $item['product_name'],
+                "quantity" => $item['quantity'],
+                "description" => "Item in Order"
+            ];
+        }, $cartItems);
+    
+        $full_name = trim("$first_name $last_name");
+    
+        $data = [
+            "data" => [
+                "attributes" => [
+                    "billing" => ["name" => $full_name],
+                    "line_items" => $lineItems,
+                    "payment_method_types" => ["gcash"],
+                    "reference_number" => $referenceNumber,
+                    "success_url" => $success_url,
+                    "cancel_url" => $cancel_url
+                ]
+            ]
+        ];
     
         try {
-            $response = $client->request('POST', 'https://api.paymongo.com/v1/links', [
+            $client = new Client();
+            $response = $client->post($api_url, [
                 'headers' => [
-                    'accept' => 'application/json',
-                    'authorization' => 'Basic ' . base64_encode($api_key),
-                    'content-type' => 'application/json',
+                    'Authorization' => 'Basic ' . base64_encode($api_key . ':'),
+                    'Content-Type' => 'application/json',
+                    'Accept' => 'application/json',
                 ],
-                'json' => [
-                    'data' => [
-                        'attributes' => [
-                            'amount' => $amount * 100, // Convert PHP to centavos
-                            'description' => $description,
-                        ]
-                    ]
-                ]
+                'json' => $data
             ]);
     
-            $body = json_decode($response->getBody(), true);
-    
-            return $body;
-    
+            $body = json_decode($response->getBody()->getContents(), true);
+            return $body['data']['attributes']['checkout_url'] ?? null;
         } catch (RequestException $e) {
-            return [
-                'error' => true,
-                'message' => $e->getMessage(),
-            ];
+            return ['error' => true, 'message' => $e->getMessage()];
         }
     }
-
+    
     public function checkout($user_id, $cart_ids, $payment_method) {
         if (empty($cart_ids) || !is_array($cart_ids)) {
             return ['success' => false, 'errors' => ['No items selected for checkout.']];
         }
     
-        if (!$this->conn->beginTransaction()) {
-            return ['success' => false, 'errors' => ['Failed to start transaction.']];
-        }
-    
         try {
-            // Fetch selected cart items
+            $this->conn->beginTransaction();
+    
             $placeholders = implode(',', array_fill(0, count($cart_ids), '?'));
-            $query = "SELECT c.cart_id, c.product_id, c.quantity, 
-                             p.name AS product_name, p.image_url AS product_image, 
-                             p.price AS product_price, p.stock AS product_stock,
-                             (c.quantity * p.price) AS total_price
-                      FROM {$this->cartTable} c
-                      JOIN products p ON c.product_id = p.product_id
+    
+            $query = "SELECT c.cart_id, c.product_id, c.quantity, p.name AS product_name, p.price AS product_price, (c.quantity * p.price) AS total_price 
+                      FROM {$this->cartTable} c 
+                      JOIN products p ON c.product_id = p.product_id 
                       WHERE c.user_id = ? AND c.cart_id IN ($placeholders)";
     
             $stmt = $this->conn->prepare($query);
@@ -97,39 +105,26 @@ class Order {
             }
     
             $totalAmount = array_sum(array_column($cartItems, 'total_price'));
-    
-            // Insert order
-            $query = "INSERT INTO {$this->orderTable} (user_id, total_price, payment_method, status) 
-                      VALUES (?, ?, ?, ?)";
-            $stmt = $this->conn->prepare($query);
             $order_status = ($payment_method === 'cod') ? 'pending' : 'processing';
-            $stmt->execute([$user_id, $totalAmount, $payment_method, $order_status]);
+            $referenceNumber = uniqid("order_");
+    
+            $query = "INSERT INTO {$this->orderTable} (user_id, total_price, payment_method, status, reference_number) 
+                      VALUES (?, ?, ?, ?, ?)";
+            $stmt = $this->conn->prepare($query);
+            $stmt->execute([$user_id, $totalAmount, $payment_method, $order_status, $referenceNumber]);
+    
             $order_id = $this->conn->lastInsertId();
     
-            // Prepare queries outside the loop
-            $orderItemQuery = "INSERT INTO {$this->orderItemTable} (order_id, product_id, quantity, price) 
-                               VALUES (?, ?, ?, ?)";
-            $orderItemStmt = $this->conn->prepare($orderItemQuery);
-    
-            $updateStockQuery = "UPDATE products SET stock = stock - ? WHERE product_id = ?";
-            $updateStockStmt = $this->conn->prepare($updateStockQuery);
-    
-            // Process order items
             foreach ($cartItems as $item) {
-                if ($item['quantity'] > $item['product_stock']) {
-                    throw new Exception("Not enough stock for " . $item['product_name']);
-                }
-    
-                $orderItemStmt->execute([$order_id, $item['product_id'], $item['quantity'], $item['product_price']]);
-                $updateStockStmt->execute([$item['quantity'], $item['product_id']]);
+                $query = "INSERT INTO {$this->orderItemTable} (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)";
+                $stmt = $this->conn->prepare($query);
+                $stmt->execute([$order_id, $item['product_id'], $item['quantity'], $item['product_price']]);
             }
     
-            // Delete selected cart items
             $query = "DELETE FROM {$this->cartTable} WHERE cart_id IN ($placeholders)";
             $stmt = $this->conn->prepare($query);
             $stmt->execute($cart_ids);
     
-            // Commit the transaction
             $this->conn->commit();
     
             if ($payment_method === 'gcash') {
@@ -137,28 +132,23 @@ class Order {
                 $stmt = $this->conn->prepare($query);
                 $stmt->execute([$user_id]);
                 $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($user) {
-                    $first_name = $user['first_name'];
-                    $last_name = $user['last_name'];
-                    $description = "Payment for Order #$order_id (User: $first_name $last_name)";
-                } else {
-                    $description = "Payment for Order #$order_id (User: Unknown)";
-                }
-
-                $paymentLinkResponse = $this->createPaymentLink($totalAmount, $description);
     
-                if (isset($paymentLinkResponse['error'])) {
-                    throw new Exception("Failed to create payment link: " . $paymentLinkResponse['message']);
+                if (!$user) {
+                    throw new Exception("User not found.");
+                }
+    
+                $paymentLink = $this->createGcashCheckoutSession($cartItems, $user['first_name'], $user['last_name'], "https://yourwebsite.com/success", "https://yourwebsite.com/cancel", $referenceNumber);
+    
+                if (!is_string($paymentLink)) {
+                    throw new Exception("Failed to create GCash checkout session.");
                 }
     
                 return [
                     'success' => true,
                     'message' => 'Checkout successful. Please complete payment via GCash.',
-                    'payment_link' => $paymentLinkResponse['data']['attributes']['checkout_url']
+                    'payment_link' => $paymentLink
                 ];
             } else {
-                // For COD, return a success message without a payment link
                 return [
                     'success' => true,
                     'message' => 'Checkout successful. Your order has been placed with Cash on Delivery.'
@@ -166,18 +156,9 @@ class Order {
             }
     
         } catch (Exception $e) {
-            if ($this->conn->inTransaction()) {  
-                $this->conn->rollBack();
-            }
+            $this->conn->rollBack();
             return ['success' => false, 'errors' => [$e->getMessage()]];
         }
     }
-    
-    
-    
-    
-    
-    
-    
 }
 ?>

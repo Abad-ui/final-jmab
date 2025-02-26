@@ -3,6 +3,7 @@ require_once '../model/order.php';
 require '../model/user.php';
 require '../vendor/autoload.php';
 
+
 function authenticateAPI() {
     $headers = getallheaders();
     if (!isset($headers['Authorization'])) {

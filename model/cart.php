@@ -3,8 +3,6 @@ require_once '../config/database.php';
 
 class Cart {
     private $conn;
-    //private $orderTable = 'orders';
-    //private $orderItemTable = 'order_items';
     private $cartTable = 'cart';
 
     public $cart_id;
@@ -129,7 +127,7 @@ class Cart {
             $stmt->bindParam(':quantity', $newQuantity, PDO::PARAM_INT);
     
             if ($stmt->execute()) {
-                return ['success' => true, 'message' => 'Cart updated successfully.'];
+                return ['success' => true, 'message' => 'Cart created successfully.'];
             }
         } catch (PDOException $e) {
             error_log('Database Error: ' . $e->getMessage());
