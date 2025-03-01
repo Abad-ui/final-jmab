@@ -14,15 +14,15 @@ function authenticateAPI() {
 
     $authHeader = $headers['Authorization'];
     $token = str_replace('Bearer ', '', $authHeader);
-    $userData = User::validateJWT($token);
-    
-    if (!$userData) {
+
+    $result = User::validateJWT($token);
+    if (!$result['success']) {
         header('HTTP/1.0 401 Unauthorized');
-        echo json_encode(['success' => false, 'errors' => ['Invalid or expired token.']]);
+        echo json_encode(['success' => false, 'errors' => $result['errors']]);
         exit;
     }
 
-    return $userData;
+    return $result['user'];
 }
 
 header('Content-Type: application/json');
@@ -30,7 +30,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 $endpoint = $_GET['endpoint'] ?? null;
 
 if ($method === 'GET' && $endpoint === 'orders') {  // Fetch all orders
-    $userData = authenticateAPI();
+    authenticateAPI();
     $order = new Order();
     $orders = $order->getAllOrders();
 
@@ -44,7 +44,7 @@ if ($method === 'GET' && $endpoint === 'orders') {  // Fetch all orders
 }
 
 if ($method === 'GET' && $endpoint === 'order' && isset($_GET['id'])) { // Fetch order for specific user
-    $userData = authenticateAPI();
+    authenticateAPI();
     $order = new Order();
     $orders = $order->getOrderById($_GET['id']);
     
@@ -58,8 +58,14 @@ if ($method === 'GET' && $endpoint === 'order' && isset($_GET['id'])) { // Fetch
 }
 
 if ($method === 'POST' && $endpoint === 'checkout') {
-    $userData = authenticateAPI(); // Ensure the user is authenticated
+    authenticateAPI(); // Ensure the request has a valid token, but don't use it for the user ID
     $data = json_decode(file_get_contents('php://input'), true);
+
+    if (empty($data['user_id'])) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'errors' => ['User ID is required.']]);
+        exit;
+    }
 
     if (empty($data['cart_ids']) || !is_array($data['cart_ids'])) {
         http_response_code(400);
@@ -74,10 +80,11 @@ if ($method === 'POST' && $endpoint === 'checkout') {
     }
 
     $order = new Order();
-    
+    $userId = $data['user_id']; // Get the user ID from the request body
+
     if ($data['payment_method'] === 'gcash') {
         // Process GCash payment
-        $result = $order->checkout($userData['user']['sub'], $data['cart_ids'], 'gcash');
+        $result = $order->checkout($userId, $data['cart_ids'], 'gcash');
 
         if ($result['success']) {
             http_response_code(200);
@@ -92,7 +99,7 @@ if ($method === 'POST' && $endpoint === 'checkout') {
         }
     } elseif ($data['payment_method'] === 'cod') {
         // Process COD order
-        $result = $order->checkout($userData['user']['sub'], $data['cart_ids'], 'cod');
+        $result = $order->checkout($userId, $data['cart_ids'], 'cod');
 
         if ($result['success']) {
             http_response_code(200);
@@ -109,5 +116,10 @@ if ($method === 'POST' && $endpoint === 'checkout') {
     exit;
 }
 
+if ($method === 'POST' && isset($_GET['endpoint']) && $_GET['endpoint'] === 'webhook/paymongo') {
+    $order = new Order();
+    $order->handleWebhook();
+    exit;
+}
 
 ?>

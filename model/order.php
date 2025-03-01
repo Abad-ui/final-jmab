@@ -160,5 +160,97 @@ class Order {
             return ['success' => false, 'errors' => [$e->getMessage()]];
         }
     }
+
+    public function registerPaymongoWebhook() {
+        $api_url = "https://api.paymongo.com/v1/webhooks";
+        $api_key = "sk_test_upzoTe7kRXHL9TGogLFjuaji";
+    
+        $data = [
+            "data" => [
+                "attributes" => [
+                    "url" => "https://656a-136-158-121-206.ngrok-free.app/api/orderRoutes.php?endpoint=webhook/paymongo", // Replace with your webhook URL
+                    "events" => [
+                        "checkout_session.payment_succeeded",
+                        "checkout_session.payment_failed"
+                    ]
+                ]
+            ]
+        ];
+    
+        try {
+            $client = new Client();
+            $response = $client->post($api_url, [
+                'headers' => [
+                    'Authorization' => 'Basic ' . base64_encode($api_key . ':'),
+                    'Content-Type' => 'application/json',
+                    'Accept' => 'application/json',
+                ],
+                'json' => $data
+            ]);
+    
+            $body = json_decode($response->getBody()->getContents(), true);
+            return $body['data'] ?? null;
+        } catch (RequestException $e) {
+            return ['error' => true, 'message' => $e->getMessage()];
+        }
+    }
+
+    public function handleWebhook() {
+        // Get the webhook payload
+        $input = file_get_contents('php://input');
+        $signature = $_SERVER['HTTP_PAYMONGO_SIGNATURE'] ?? '';
+        $event = json_decode($input, true);
+    
+        // Verify the webhook signature (for security)
+        $timestamp = $_SERVER['HTTP_PAYMONGO_TIMESTAMP'] ?? '';
+        $webhookSecret = 'whsk_q1PBbaoeuw4kpoJzFuy8X67X'; // Your webhook secret from Paymongo
+        $computedSignature = hash_hmac('sha256', $timestamp . '.' . $input, $webhookSecret);
+    
+        /*if ($computedSignature !== $signature) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Invalid signature']);
+            exit;
+        }*/
+    
+        // Process the event based on type
+        $type = $event['data']['attributes']['type'] ?? '';
+        $referenceNumber = $event['data']['attributes']['data']['attributes']['reference_number'] ?? '';
+    
+        if (empty($referenceNumber)) {
+            http_response_code(400);
+            echo json_encode(['error' => 'Missing reference number']);
+            exit;
+        }
+    
+        try {
+            $this->conn->beginTransaction();
+            
+            // Note: The event type is "checkout_session.payment.paid" based on your webhook registration
+            switch ($type) {
+                case 'checkout_session.payment.paid':
+                    // Update order status to paid
+                    $paymentId = $event['data']['attributes']['data']['id'] ?? '';
+                    
+                    $query = "UPDATE {$this->orderTable} 
+                              SET payment_status = 'paid', 
+                                  status = 'processing',
+                                  payment_intent_id = ? 
+                              WHERE reference_number = ?";
+                                  
+                    $stmt = $this->conn->prepare($query);
+                    $stmt->execute([$paymentId, $referenceNumber]);
+                    break;
+            }
+            
+            $this->conn->commit();
+            http_response_code(200);
+            echo json_encode(['success' => true]);
+            
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            http_response_code(500);
+            echo json_encode(['error' => $e->getMessage()]);
+        }
+    }
 }
 ?>

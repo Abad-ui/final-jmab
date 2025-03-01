@@ -13,14 +13,14 @@ function authenticateAPI() {
     $authHeader = $headers['Authorization'];
     $token = str_replace('Bearer ', '', $authHeader);
 
-    $userData = User::validateJWT($token);
-    if (!$userData) {
+    $result = User::validateJWT($token);
+    if (!$result['success']) {
         header('HTTP/1.0 401 Unauthorized');
-        echo json_encode(['success' => false, 'errors' => ['Invalid or expired token.']]);
+        echo json_encode(['success' => false, 'errors' => $result['errors']]);
         exit;
     }
 
-    return $userData;
+    return $result['user'];
 }
 
 header('Content-Type: application/json');
@@ -58,13 +58,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_GET['endpoint'] === 'register') {
     }
 
 } elseif ($_SERVER['REQUEST_METHOD'] === 'GET' && $_GET['endpoint'] === 'users') {
-    $userData = authenticateAPI(); 
+    authenticateAPI(); 
     $user = new User();
     $users = $user->getUsers();
     
     echo json_encode(['success' => true, 'users' => $users]);
 } elseif ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['endpoint']) && $_GET['endpoint'] === 'user' && isset($_GET['id'])) {
-    $userData = authenticateAPI();
+    authenticateAPI();
     $user = new User();
     $userInfo = $user->getUserById($_GET['id']);
     
@@ -75,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_GET['endpoint'] === 'register') {
         echo json_encode(['success' => false, 'errors' => ['User not found.']]);
     }
 } elseif ($_SERVER['REQUEST_METHOD'] === 'PUT' && $_GET['endpoint'] === 'update') {
-    $userData = authenticateAPI();
+    authenticateAPI();
 
     $data = json_decode(file_get_contents('php://input'), true);
  
@@ -97,7 +97,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $_GET['endpoint'] === 'register') {
         echo json_encode(['success' => false, 'errors' => $result['errors']]);
     }
 } elseif ($_SERVER['REQUEST_METHOD'] === 'DELETE' && $_GET['endpoint'] === 'delete') {
-    $userData = authenticateAPI();
+    authenticateAPI();
     $data = json_decode(file_get_contents('php://input'), true);
 
     $user = new User();

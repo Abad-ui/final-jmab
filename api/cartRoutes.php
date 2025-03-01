@@ -8,7 +8,7 @@ header('Content-Type: application/json');
 function authenticateAPI() {
     $headers = getallheaders();
     if (!isset($headers['Authorization'])) {
-        http_response_code(401);
+        header('HTTP/1.0 401 Unauthorized');
         echo json_encode(['success' => false, 'errors' => ['Authorization token is required.']]);
         exit;
     }
@@ -16,23 +16,21 @@ function authenticateAPI() {
     $authHeader = $headers['Authorization'];
     $token = str_replace('Bearer ', '', $authHeader);
 
-    $userData = User::validateJWT($token);
-    if (!$userData) {
-        http_response_code(401);
-        echo json_encode(['success' => false, 'errors' => ['Invalid or expired token.']]);
+    $result = User::validateJWT($token);
+    if (!$result['success']) {
+        header('HTTP/1.0 401 Unauthorized');
+        echo json_encode(['success' => false, 'errors' => $result['errors']]);
         exit;
     }
 
-    //$userData['user_id'] = $userData['sub'];
-    //unset($userData['sub']);
-    return $userData;
+    return $result['user'];
 }
 
 $method = $_SERVER['REQUEST_METHOD'];
 $endpoint = isset($_GET['endpoint']) ? $_GET['endpoint'] : null;
 
 if ($method === 'GET' && $endpoint === 'cart' && isset($_GET['user_id'])) {
-    $userData = authenticateAPI();
+    authenticateAPI();
     $cart = new Cart();
     $cartInfo = $cart->getCartByUserId($_GET['user_id']);
     
@@ -46,7 +44,7 @@ if ($method === 'GET' && $endpoint === 'cart' && isset($_GET['user_id'])) {
 }
 
 if ($method === 'POST' && $endpoint === 'createCart') {
-    $userData = authenticateAPI();
+    authenticateAPI();
     $data = json_decode(file_get_contents('php://input'), true);
     $cart = new Cart();
     $result = $cart->createCart($data['user_id'] ?? null, $data['product_id'] ?? null, $data['quantity'] ?? null);
@@ -62,7 +60,7 @@ if ($method === 'POST' && $endpoint === 'createCart') {
 }
 
 if ($method === 'PUT' && $endpoint === 'updateCart' && isset($_GET['cart_id'])) {
-    $userData = authenticateAPI();
+    authenticateAPI();
     $data = json_decode(file_get_contents('php://input'), true);
     $cart = new Cart();
     $result = $cart->updateCart((int)$_GET['cart_id'], $data['quantity'] ?? null);
@@ -72,7 +70,7 @@ if ($method === 'PUT' && $endpoint === 'updateCart' && isset($_GET['cart_id'])) 
 }
 
 if ($method === 'DELETE' && $endpoint === 'deleteCart' && isset($_GET['cart_id'])) {
-    $userData = authenticateAPI();
+    authenticateAPI();
     $cart = new Cart();
 
     // Convert comma-separated cart IDs into an array

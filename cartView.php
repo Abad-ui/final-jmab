@@ -64,7 +64,7 @@
                 return;
             }
 
-            const apiUrl = `http://localhost/business-jmab/api/cart/cart?user_id=${userId}`;
+            const apiUrl = `https://656a-136-158-121-206.ngrok-free.app/api/cart/cart?user_id=${userId}`;
 
             fetch(apiUrl)
                 .then(response => response.json())

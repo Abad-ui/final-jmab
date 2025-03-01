@@ -7,8 +7,8 @@ header('Content-Type: application/json');
 
 function isAdmin() {
     $userData = authenticateAPI();
-    if (isset($userData['user']['roles'])) {
-        $roles = is_array($userData['user']['roles']) ? $userData['user']['roles'] : [$userData['user']['roles']];
+    if (isset($userData['roles'])) {
+        $roles = is_array($userData['roles']) ? $userData['roles'] : [$userData['roles']];
         return in_array('admin', $roles);
     }
     return false;
@@ -25,14 +25,14 @@ function authenticateAPI() {
     $authHeader = $headers['Authorization'];
     $token = str_replace('Bearer ', '', $authHeader);
 
-    $userData = User::validateJWT($token);
-    if (!$userData) {
+    $result = User::validateJWT($token);
+    if (!$result['success']) {
         header('HTTP/1.0 401 Unauthorized');
-        echo json_encode(['success' => false, 'errors' => ['Invalid or expired token.']]);
+        echo json_encode(['success' => false, 'errors' => $result['errors']]);
         exit;
     }
 
-    return $userData;
+    return $result['user'];
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET' && $_GET['endpoint'] === 'products') {
