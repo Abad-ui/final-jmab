@@ -19,7 +19,8 @@ class User {
     public $phone_number;
     public $profile_picture;
     public $user_address;
-
+    public $gender;
+    public $birthday;
     
     public function __construct() {
         $database = new Database();
@@ -199,7 +200,7 @@ class User {
 
     
     public function getUserById($id) {
-        $query = 'SELECT id, first_name, last_name, email, roles, password, user_address, phone_number, profile_picture FROM ' . $this->table . ' WHERE id = :id';
+        $query = 'SELECT id, first_name, last_name, email, roles, password, user_address, phone_number, profile_picture, gender, birthday FROM ' . $this->table . ' WHERE id = :id';
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':id', $id);
         $stmt->execute();
