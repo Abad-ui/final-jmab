@@ -1,13 +1,3 @@
 RewriteEngine On
 
-# Routes for user-related API endpoints
-RewriteRule ^api/user/(.*)$ api/userRoutes.php?endpoint=$1 [QSA,L]
-
-# Routes for product-related API endpoints
-RewriteRule ^api/product/(.*)$ api/productRoutes.php?endpoint=$1 [QSA,L]
-
-# Routes for cart-related API endpoints
-RewriteRule ^api/cart/(.*)$ api/cartRoutes.php?endpoint=$1 [QSA,L]
-
-# Routes for oder-related API endpoints
-RewriteRule ^api/order/(.*)$ api/orderRoutes.php?endpoint=$1 [QSA,L]
+RewriteRule ^api/(.*)$ api/api.php?endpoint=$1 [QSA,L]

@@ -14,6 +14,36 @@ class Cart {
         $database = new Database();
         $this->conn = $database->connect();
     }
+
+
+    public function getAllCarts() {
+        try {
+            $query = "SELECT * FROM $this->cartTable";
+            $stmt = $this->conn->prepare($query);
+            $stmt->execute();
+
+            // Fetch all rows as an associative array
+            $carts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if ($carts === false || empty($carts)) {
+                return [
+                    'success' => true, // Still successful, just no data
+                    'data' => [],
+                    'message' => 'No carts found.'
+                ];
+            }
+
+            return [
+                'success' => true,
+                'data' => $carts
+            ];
+        } catch (PDOException $e) {
+            return [
+                'success' => false,
+                'errors' => ['Database error: ' . $e->getMessage()]
+            ];
+        }
+    }
     
     public function getCartByUserId($user_id) {
             $query = 'SELECT c.cart_id, c.user_id, c.product_id, c.quantity, 

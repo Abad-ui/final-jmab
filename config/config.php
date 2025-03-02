@@ -1,3 +1,4 @@
 <?php
-define('JWT_SECRET_KEY', 'fOtHxdkR9etAHOXMLu9cR8TN/1yzB8KjPUzO9et33Qk/5t4ukHFWbUrDbBivNa0h1pigNx21VXqWSifxcQWV3w==');
+// config.php
+define('JWT_SECRET_KEY', 'kJ9$mPqW#vR2&xL5@nT8*bY3!zF6^hD1+cG4-eA7');
 ?>
