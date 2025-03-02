@@ -39,7 +39,7 @@ class ProductController {
         $products = $this->productModel->getProducts();
         return [
             'status' => 200,
-            'body' => ['success' => true, 'data' => $products]
+            'body' => ['success' => true, 'products' => $products]
         ];
     }
 
@@ -49,7 +49,7 @@ class ProductController {
         if ($productInfo) {
             return [
                 'status' => 200,
-                'body' => ['success' => true, 'data' => $productInfo]
+                'body' => ['success' => true, 'products' => $productInfo]
             ];
         }
         return [

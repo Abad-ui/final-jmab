@@ -17,7 +17,8 @@ $path = explode('/', trim($endpoint, '/'));
 
 $resource = $path[0] ?? '';
 $subResource = isset($path[1]) ? $path[1] : null;
-$resourceId = isset($path[1]) && is_numeric($path[1]) ? $path[1] : null;
+//$resourceId = isset($path[1]) && is_numeric($path[1]) ? $path[1] : null;
+$resourceId = isset($path[1]) ? $path[1] : null;
 
 $controllers = [
     'users' => new UserController(new User()),

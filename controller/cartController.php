@@ -38,7 +38,7 @@ class CartController {
         }
         return [
             'status' => 200,
-            'body' => ['success' => true, 'data' => $carts]
+            'body' => ['success' => true, 'cart' => $carts]
         ];
     }
 
@@ -49,7 +49,7 @@ class CartController {
         if (!empty($cartInfo)) {
             return [
                 'status' => 200,
-                'body' => ['success' => true, 'data' => $cartInfo]
+                'body' => ['success' => true, 'cart' => $cartInfo]
             ];
         }
         return [
@@ -107,8 +107,6 @@ class CartController {
     // Delete one or more cart items by ID
     public function delete($cartIds) {
         $this->authenticateAPI();
-
-        // Handle comma-separated IDs (e.g., "1,2,3") or single ID
         $cartIdsArray = is_array($cartIds) ? $cartIds : array_filter(explode(',', $cartIds), 'is_numeric');
         if (empty($cartIdsArray)) {
             return [
@@ -116,7 +114,6 @@ class CartController {
                 'body' => ['success' => false, 'errors' => ['Invalid cart ID(s) provided.']]
             ];
         }
-
         $result = $this->cartModel->deleteCart($cartIdsArray);
         return [
             'status' => $result['success'] ? 200 : 400,
