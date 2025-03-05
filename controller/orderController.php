@@ -29,7 +29,7 @@ class OrderController {
         if ($orders) {
             return [
                 'status' => 200,
-                'body' => ['success' => true, 'data' => $orders]
+                'body' => ['success' => true, 'orders' => $orders]
             ];
         }
         return [
@@ -44,7 +44,7 @@ class OrderController {
         if ($orders) {
             return [
                 'status' => 200,
-                'body' => ['success' => true, 'data' => $orders]
+                'body' => ['success' => true, 'orders' => $orders]
             ];
         }
         return [
@@ -55,7 +55,7 @@ class OrderController {
 
     // Create an order (checkout) with user_id from URL
     public function create($userId, array $data) {
-        $this->authenticateAPI();
+        //$this->authenticateAPI();
 
         if (empty($userId) || !is_numeric($userId)) {
             return [
@@ -98,13 +98,50 @@ class OrderController {
         ];
     }
 
+
+    // New method to handle Paymongo webhook
     public function handleWebhook() {
-        $this->orderModel->handleWebhook();
+        // Get raw request body
+        $requestBody = file_get_contents('php://input');
+        $headers = getallheaders();
+        $signatureHeader = $headers['Paymongo-Signature'] ?? null;
+
+        if (!$signatureHeader) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Missing Paymongo-Signature header']]
+            ];
+        }
+
+        // Get webhook secret from environment (ensure this is set in your .env file)
+        $webhookSecret = "whsk_LpK3Shz3HY9QYhitp4G1DR5M";
+
+        // Verify the webhook signature
+        $isValid = $this->orderModel->verifyWebhookSignature($requestBody, $signatureHeader, $webhookSecret);
+
+        if (!$isValid) {
+            return [
+                'status' => 401,
+                'body' => ['success' => false, 'errors' => ['Invalid webhook signature']]
+            ];
+        }
+
+        // Handle the webhook event
+        $result = $this->orderModel->handleWebhook($requestBody);
+
+        if ($result['success']) {
+            return [
+                'status' => 200,
+                'body' => ['success' => true, 'message' => $result['message']]
+            ];
+        }
+
         return [
-            'status' => 200,
-            'body' => ['success' => true, 'message' => 'Webhook processed successfully']
+            'status' => 400,
+            'body' => ['success' => false, 'errors' => [$result['message']]]
         ];
     }
+
 
     public function update($id, array $data) {
         $this->authenticateAPI();

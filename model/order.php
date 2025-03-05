@@ -27,7 +27,27 @@ class Order {
 
     // Fetch order by user ID
     public function getOrderById($user_id) {
-        $query = 'SELECT * FROM ' . $this->orderTable . ' WHERE user_id = :user_id';
+        $query = 'SELECT 
+            o.order_id,
+            o.user_id,
+            o.payment_method,
+            o.payment_status,
+            o.status,
+            o.reference_number,
+            o.paymongo_session_id,
+            o.paymongo_payment_id,
+            o.created_at,
+            o.updated_at,
+            oi.quantity,
+            p.name AS product_name,
+            p.price AS product_price,
+            (oi.quantity * p.price) AS total_price,
+            p.image_url AS product_image
+        FROM ' . $this->orderTable . ' o
+        LEFT JOIN order_items oi ON o.order_id = oi.order_id
+        LEFT JOIN products p ON oi.product_id = p.product_id
+        WHERE o.user_id = :user_id';
+        
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
         $stmt->execute();
@@ -161,96 +181,97 @@ class Order {
         }
     }
 
-    public function registerPaymongoWebhook() {
-        $api_url = "https://api.paymongo.com/v1/webhooks";
-        $api_key = "sk_test_upzoTe7kRXHL9TGogLFjuaji";
-    
-        $data = [
-            "data" => [
-                "attributes" => [
-                    "url" => "https://656a-136-158-121-206.ngrok-free.app/api/orderRoutes.php?endpoint=webhook/paymongo", // Replace with your webhook URL
-                    "events" => [
-                        "checkout_session.payment_succeeded",
-                        "checkout_session.payment_failed"
-                    ]
-                ]
-            ]
-        ];
-    
-        try {
-            $client = new Client();
-            $response = $client->post($api_url, [
-                'headers' => [
-                    'Authorization' => 'Basic ' . base64_encode($api_key . ':'),
-                    'Content-Type' => 'application/json',
-                    'Accept' => 'application/json',
-                ],
-                'json' => $data
-            ]);
-    
-            $body = json_decode($response->getBody()->getContents(), true);
-            return $body['data'] ?? null;
-        } catch (RequestException $e) {
-            return ['error' => true, 'message' => $e->getMessage()];
-        }
+    // New method to verify webhook podpis
+    public function verifyWebhookSignature($requestBody, $signatureHeader, $webhookSecret) {
+        // Split the signature header (e.g., "t=12345,te=abcde")
+        $signatureParts = preg_split("/,/", $signatureHeader);
+        $timePart = preg_split("/=/", $signatureParts[0]);
+        $signaturePart = preg_split("/=/", $signatureParts[1]);
+
+        $timestamp = $timePart[1];
+        $receivedSignature = $signaturePart[1];
+
+        // Concatenate timestamp and request body
+        $dataToSign = $timestamp . '.' . $requestBody;
+
+        // Compute HMAC SHA256 signature
+        $computedSignature = hash_hmac('sha256', $dataToSign, $webhookSecret);
+
+        // Compare signatures
+        return hash_equals($computedSignature, $receivedSignature);
     }
 
-    public function handleWebhook() {
-        // Get the webhook payload
-        $input = file_get_contents('php://input');
-        $signature = $_SERVER['HTTP_PAYMONGO_SIGNATURE'] ?? '';
-        $event = json_decode($input, true);
+    // New method to handle webhook payload and update order status
+    public function handleWebhook($eventData) {
+        $event = json_decode($eventData, true);
+        $eventType = $event['data']['attributes']['type'] ?? null;
+        $referenceNumber = $event['data']['attributes']['data']['attributes']['reference_number'] ?? null;
+        $paymentId = $event['data']['attributes']['data']['id'] ?? null; // Extract payment ID
     
-        // Verify the webhook signature (for security)
-        $timestamp = $_SERVER['HTTP_PAYMONGO_TIMESTAMP'] ?? '';
-        $webhookSecret = 'whsk_q1PBbaoeuw4kpoJzFuy8X67X'; // Your webhook secret from Paymongo
-        $computedSignature = hash_hmac('sha256', $timestamp . '.' . $input, $webhookSecret);
-    
-        /*if ($computedSignature !== $signature) {
-            http_response_code(400);
-            echo json_encode(['error' => 'Invalid signature']);
-            exit;
-        }*/
-    
-        // Process the event based on type
-        $type = $event['data']['attributes']['type'] ?? '';
-        $referenceNumber = $event['data']['attributes']['data']['attributes']['reference_number'] ?? '';
-    
-        if (empty($referenceNumber)) {
-            http_response_code(400);
-            echo json_encode(['error' => 'Missing reference number']);
-            exit;
+        if (!$referenceNumber || !$eventType || !$paymentId) {
+            return ['success' => false, 'message' => 'Invalid webhook payload'];
         }
     
+        // Find the order by reference number
+        $query = "SELECT * FROM {$this->orderTable} WHERE reference_number = :reference_number";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':reference_number', $referenceNumber);
+        $stmt->execute();
+        $order = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+        if (!$order) {
+            return ['success' => false, 'message' => 'Order not found'];
+        }
+    
+        // Verify payment status with Paymongo API
+        $apiKey = "sk_test_upzoTe7kRXHL9TGogLFjuaji"; // Use your secret key
+        $client = new Client();
         try {
-            $this->conn->beginTransaction();
-            
-            // Note: The event type is "checkout_session.payment.paid" based on your webhook registration
-            switch ($type) {
-                case 'checkout_session.payment.paid':
-                    // Update order status to paid
-                    $paymentId = $event['data']['attributes']['data']['id'] ?? '';
-                    
-                    $query = "UPDATE {$this->orderTable} 
-                              SET payment_status = 'paid', 
-                                  status = 'processing',
-                                  payment_intent_id = ? 
-                              WHERE reference_number = ?";
-                                  
-                    $stmt = $this->conn->prepare($query);
-                    $stmt->execute([$paymentId, $referenceNumber]);
-                    break;
-            }
-            
-            $this->conn->commit();
-            http_response_code(200);
-            echo json_encode(['success' => true]);
-            
-        } catch (Exception $e) {
-            $this->conn->rollBack();
-            http_response_code(500);
-            echo json_encode(['error' => $e->getMessage()]);
+            $response = $client->get("https://api.paymongo.com/v1/payments/{$paymentId}", [
+                'headers' => [
+                    'Authorization' => 'Basic ' . base64_encode($apiKey . ':'),
+                    'Accept' => 'application/json',
+                ]
+            ]);
+            $paymentData = json_decode($response->getBody()->getContents(), true);
+            $actualStatus = $paymentData['data']['attributes']['status'];
+        } catch (RequestException $e) {
+            return ['success' => false, 'message' => 'Failed to verify payment status: ' . $e->getMessage()];
         }
+    
+        // Determine new payment status based on event type and API verification
+        $newPaymentStatus = null;
+        switch ($eventType) {
+            case 'payment.paid':
+                if ($actualStatus === 'paid') {
+                    $newPaymentStatus = 'paid';
+                } else {
+                    return ['success' => false, 'message' => 'Payment status mismatch: expected paid, got ' . $actualStatus];
+                }
+                break;
+            case 'payment.failed':
+                if ($actualStatus === 'failed') {
+                    $newPaymentStatus = 'failed';
+                } else {
+                    return ['success' => false, 'message' => 'Payment status mismatch: expected failed, got ' . $actualStatus];
+                }
+                break;
+            default:
+                return ['success' => false, 'message' => 'Unhandled event type: ' . $eventType];
+        }
+    
+        if ($newPaymentStatus) {
+            $query = "UPDATE {$this->orderTable} SET payment_status = :payment_status WHERE reference_number = :reference_number";
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(':payment_status', $newPaymentStatus);
+            $stmt->bindParam(':reference_number', $referenceNumber);
+            $stmt->execute();
+    
+            return ['success' => true, 'message' => "Payment status updated to '$newPaymentStatus'"];
+        }
+    
+        return ['success' => false, 'message' => 'No payment status update required'];
     }
+
 }
 ?>

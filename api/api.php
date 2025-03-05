@@ -17,7 +17,6 @@ $path = explode('/', trim($endpoint, '/'));
 
 $resource = $path[0] ?? '';
 $subResource = isset($path[1]) ? $path[1] : null;
-//$resourceId = isset($path[1]) && is_numeric($path[1]) ? $path[1] : null;
 $resourceId = isset($path[1]) ? $path[1] : null;
 
 $controllers = [
@@ -43,7 +42,7 @@ try {
             } elseif ($resource === 'users' && $subResource === 'login') {
                 $response = $controller->login($data);
             } elseif ($resource === 'orders' && $resourceId !== null) {
-                $response = $controller->create($resourceId, $data); // Pass user_id from URL
+                $response = $controller->create($resourceId, $data);
             } elseif ($resource === 'products' && $resourceId === null) {
                 $response = $controller->create($data);
             } elseif ($resource === 'carts' && $resourceId === null) {
@@ -93,7 +92,9 @@ try {
     http_response_code($response['status']);
     echo json_encode($response['body']);
 } catch (Exception $e) {
-    http_response_code($e->getCode() ?: 500);
+    $statusCode = is_numeric($e->getCode()) ? (int)$e->getCode() : 500;
+    $statusCode = ($statusCode >= 100 && $statusCode <= 599) ? $statusCode : 500;
+    http_response_code($statusCode);
     echo json_encode(['success' => false, 'errors' => [$e->getMessage()]]);
 }
 ?>
