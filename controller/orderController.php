@@ -55,33 +55,41 @@ class OrderController {
 
     // Create an order (checkout) with user_id from URL
     public function create($userId, array $data) {
-        //$this->authenticateAPI();
-
+        $this->authenticateAPI();
+    
         if (empty($userId) || !is_numeric($userId)) {
             return [
                 'status' => 400,
                 'body' => ['success' => false, 'errors' => ['Valid User ID is required in the URL.']]
             ];
         }
-
+    
         $cartIds = $data['cart_ids'] ?? null;
         $paymentMethod = $data['payment_method'] ?? null;
-
+        $addressId = $data['address_id'] ?? null;
+    
         if (empty($cartIds) || !is_array($cartIds)) {
             return [
                 'status' => 400,
                 'body' => ['success' => false, 'errors' => ['Cart IDs are required and must be an array.']]
             ];
         }
-
+    
         if (empty($paymentMethod) || !in_array($paymentMethod, ['gcash', 'cod'])) {
             return [
                 'status' => 400,
                 'body' => ['success' => false, 'errors' => ['Invalid payment method. Choose either "gcash" or "cod".']]
             ];
         }
-
-        $result = $this->orderModel->checkout($userId, $cartIds, $paymentMethod);
+    
+        if (empty($addressId) || !is_numeric($addressId)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Valid address ID is required in the request body.']]
+            ];
+        }
+    
+        $result = $this->orderModel->checkout($userId, $cartIds, $paymentMethod, $addressId);
         if ($result['success']) {
             $responseBody = ['success' => true, 'message' => $result['message']];
             if ($paymentMethod === 'gcash' && isset($result['payment_link'])) {
@@ -101,44 +109,33 @@ class OrderController {
 
     // New method to handle Paymongo webhook
     public function handleWebhook() {
-        // Get raw request body
         $requestBody = file_get_contents('php://input');
         $headers = getallheaders();
         $signatureHeader = $headers['Paymongo-Signature'] ?? null;
-
+    
         if (!$signatureHeader) {
             return [
                 'status' => 400,
                 'body' => ['success' => false, 'errors' => ['Missing Paymongo-Signature header']]
             ];
         }
-
-        // Get webhook secret from environment (ensure this is set in your .env file)
-        $webhookSecret = "whsk_LpK3Shz3HY9QYhitp4G1DR5M";
-
-        // Verify the webhook signature
+    
+        $webhookSecret = "whsk_WxZav2Xx9FgFDwRvqLAk5qDo"; // Ensure this matches Paymongo Dashboard
+    
         $isValid = $this->orderModel->verifyWebhookSignature($requestBody, $signatureHeader, $webhookSecret);
-
+    
         if (!$isValid) {
             return [
                 'status' => 401,
                 'body' => ['success' => false, 'errors' => ['Invalid webhook signature']]
             ];
         }
-
-        // Handle the webhook event
+    
         $result = $this->orderModel->handleWebhook($requestBody);
-
-        if ($result['success']) {
-            return [
-                'status' => 200,
-                'body' => ['success' => true, 'message' => $result['message']]
-            ];
-        }
-
+    
         return [
-            'status' => 400,
-            'body' => ['success' => false, 'errors' => [$result['message']]]
+            'status' => $result['success'] ? 200 : 400,
+            'body' => $result['success'] ? ['success' => true, 'message' => $result['message']] : ['success' => false, 'errors' => [$result['message']]]
         ];
     }
 

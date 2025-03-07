@@ -7,7 +7,7 @@ use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
 class User {
-    private $conn;
+    public $conn;
     private $table = 'users';
 
     public $id;
@@ -15,10 +15,9 @@ class User {
     public $last_name;
     public $email;
     public $password;
-    public $roles = 'customer';
+    public $roles;
     public $phone_number;
     public $profile_picture;
-    public $user_address;
     public $gender;
     public $birthday;
     
@@ -28,7 +27,6 @@ class User {
     }
 
     private static function getSecretKey() {
-        
         return JWT_SECRET_KEY;
     }
     
@@ -52,14 +50,10 @@ class User {
         $secretKey = self::getSecretKey();
         try {
             $decoded = JWT::decode($token, new Key($secretKey, 'HS256'));
-            
-            // Check if the token is expired manually
-            $current_time = time(); // current time in seconds
+            $current_time = time();
             if ($decoded->exp < $current_time) {
-                // Token has expired
                 return ['success' => false, 'errors' => ['Token has expired.']];
             }
-            
             return ['success' => true, 'user' => (array) $decoded];
         } catch (Exception $e) {
             return ['success' => false, 'errors' => ['Invalid token.']];
@@ -68,13 +62,11 @@ class User {
 
     private function validateInput() {
         $errors = [];
-
         
         if (empty($this->first_name)) $errors[] = 'First name is required.';
         if (empty($this->last_name)) $errors[] = 'Last name is required.';
         if (empty($this->email)) $errors[] = 'Email is required.';
         if (empty($this->password)) $errors[] = 'Password is required.';
-
         
         if (!filter_var($this->email, FILTER_VALIDATE_EMAIL)) {
             $errors[] = 'Invalid email format.';
@@ -83,48 +75,41 @@ class User {
         return $errors;
     }
 
-    
     private function isEmailExists($email, $excludeUserId = null) {
-    $query = 'SELECT id FROM ' . $this->table . ' WHERE email = :email';
-    
-    if ($excludeUserId !== null) {
-        $query .= ' AND id != :excludeUserId';
+        $query = 'SELECT id FROM ' . $this->table . ' WHERE email = :email';
+        if ($excludeUserId !== null) {
+            $query .= ' AND id != :excludeUserId';
+        }
+
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':email', $email);
+        if ($excludeUserId !== null) {
+            $stmt->bindParam(':excludeUserId', $excludeUserId, PDO::PARAM_INT);
+        }
+        $stmt->execute();
+        
+        return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
     }
 
-    $stmt = $this->conn->prepare($query);
-    $stmt->bindParam(':email', $email);
-    
-    if ($excludeUserId !== null) {
-        $stmt->bindParam(':excludeUserId', $excludeUserId, PDO::PARAM_INT);
-    }
-
-    $stmt->execute();
-    
-    return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
-}
-
-    
     public function register() {
         $errors = $this->validateInput();
 
-        
         if (!empty($errors)) {
             return ['success' => false, 'errors' => $errors];
         }
 
-        
         if ($this->isEmailExists($this->email)) {
             return ['success' => false, 'errors' => ['Email is already registered.']];
         }
 
         $hashedPassword = password_hash($this->password, PASSWORD_BCRYPT);
+        $this->roles = $this->roles ?: 'customer';
 
         $query = 'INSERT INTO ' . $this->table . ' 
                   (first_name, last_name, email, password, roles, created_at) 
                   VALUES (:first_name, :last_name, :email, :password, :roles, NOW())';
 
         $stmt = $this->conn->prepare($query);
-
         $stmt->bindParam(':first_name', $this->first_name);
         $stmt->bindParam(':last_name', $this->last_name);
         $stmt->bindParam(':email', $this->email);
@@ -143,7 +128,6 @@ class User {
         return ['success' => false, 'errors' => ['Unknown error occurred.']];
     }
 
-    
     public function login($email, $password) {
         $result = $this->authenticate($email, $password);
         
@@ -189,7 +173,6 @@ class User {
         return ['success' => false, 'errors' => ['Invalid email or password.']];
     }
 
-    
     public function getUsers() {
         $query = 'SELECT id, first_name, last_name, email, roles FROM ' . $this->table;
         $stmt = $this->conn->prepare($query);
@@ -198,14 +181,49 @@ class User {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    
     public function getUserById($id) {
-        $query = 'SELECT id, first_name, last_name, email, roles, password, user_address, phone_number, profile_picture, gender, birthday FROM ' . $this->table . ' WHERE id = :id';
+        $query = 'SELECT u.id, u.first_name, u.last_name, u.email, u.roles, u.phone_number, u.profile_picture, u.gender, u.birthday, ua.id AS address_id, ua.home_address, 
+        ua.barangay,ua.city, ua.is_default
+        FROM ' . $this->table . ' u
+        LEFT JOIN user_addresses ua ON u.id = ua.user_id
+        WHERE u.id = :id';
+        
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':id', $id);
         $stmt->execute();
-
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+    
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        if (!$results) {
+            return false;
+        }
+    
+        $user = [
+            'id' => $results[0]['id'],
+            'first_name' => $results[0]['first_name'],
+            'last_name' => $results[0]['last_name'],
+            'email' => $results[0]['email'],
+            'roles' => $results[0]['roles'],
+            'phone_number' => $results[0]['phone_number'],
+            'profile_picture' => $results[0]['profile_picture'],
+            'gender' => $results[0]['gender'],
+            'birthday' => $results[0]['birthday'],
+            'addresses' => []
+        ];
+    
+        foreach ($results as $row) {
+            if ($row['address_id']) {
+                $user['addresses'][] = [
+                    'id' => $row['address_id'],
+                    'home_address' => $row['home_address'],
+                    'barangay' => $row['barangay'],
+                    'city' => $row['city'],
+                    'is_default' => (bool)$row['is_default']
+                ];
+            }
+        }
+    
+        return $user;
     }
     
     public function update($id, $data) {
@@ -216,17 +234,14 @@ class User {
     
         $errors = [];
     
-        // Validate email format
         if (isset($data['email']) && !filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
             $errors[] = 'Invalid email format.';
         }
-    
-        // Check if email is already in use
+        
         if (isset($data['email']) && $this->isEmailExists($data['email'], $id)) {
             $errors[] = 'Email is already registered.';
         }
-    
-        // Validate first_name and last_name (Only letters allowed)
+        
         if (isset($data['first_name']) && !preg_match('/^[a-zA-Z ]+$/', $data['first_name'])) {
             $errors[] = 'First name must contain only letters.';
         }
@@ -238,58 +253,147 @@ class User {
             return ['success' => false, 'errors' => $errors];
         }
     
+        $addressData = [];
+        if (isset($data['addresses']) && is_array($data['addresses'])) {
+            $addressData = $data['addresses'];
+            unset($data['addresses']);
+        }
+    
         $updates = [];
         $params = [':id' => $id];
+        $hasChanges = false;
     
         foreach ($data as $key => $value) {
             if ($key !== 'id' && $key !== 'roles') {
-                // Ignore empty values to prevent updating with blank fields
-                if ($value === '') {  // Allow updating NULL values but ignore empty strings
+                if ($value === '') {
                     continue;
                 }
-        
                 if ($key === 'password') {
-                    // Check if the new password is actually different before hashing
-                    if (!password_verify($value, $userExists['password'])) {
+                    $currentPassword = $this->getPasswordById($id);
+                    if ($currentPassword && !password_verify($value, $currentPassword)) {
                         $hashedPassword = password_hash($value, PASSWORD_BCRYPT);
                         $updates[] = "{$key} = :{$key}";
                         $params[":{$key}"] = $hashedPassword;
+                        $hasChanges = true;
                     }
                 } else {
-                    // Ensure NULL values in the database are updated properly
                     if (!array_key_exists($key, $userExists) || $userExists[$key] !== $value) {
                         $updates[] = "{$key} = :{$key}";
                         $params[":{$key}"] = $value;
+                        $hasChanges = true;
                     }
                 }
             }
         }
         
+        $response = ['success' => true, 'message' => 'User updated successfully.'];
     
-        if (empty($updates)) {
+        if (!empty($updates)) {
+            $query = 'UPDATE ' . $this->table . ' SET ' . implode(', ', $updates) . ' WHERE id = :id';
+            $stmt = $this->conn->prepare($query);
+            foreach ($params as $param_key => $value) {
+                $stmt->bindValue($param_key, $value);
+            }
+            try {
+                if (!$stmt->execute()) {
+                    return ['success' => false, 'errors' => ['Failed to update user data.']];
+                }
+            } catch (PDOException $e) {
+                error_log('Database error: ' . $e->getMessage());
+                return ['success' => false, 'errors' => ['An error occurred. Please try again.']];
+            }
+        } elseif (empty($addressData) && !$hasChanges) {
             return ['success' => false, 'errors' => ['No changes detected.']];
         }
     
-        $query = 'UPDATE ' . $this->table . ' SET ' . implode(', ', $updates) . ' WHERE id = :id';
-        $stmt = $this->conn->prepare($query);
-    
-        foreach ($params as $param_key => $value) {
-            $stmt->bindValue($param_key, $value);
-        }
-    
-        try {
-            if ($stmt->execute()) {
-                return ['success' => true, 'message' => 'User updated successfully.'];
+        $addressChanged = false;
+        if (!empty($addressData)) {
+            // If setting a new default, reset all others first
+            foreach ($addressData as $address) {
+                if (isset($address['is_default']) && $address['is_default']) {
+                    $resetQuery = 'UPDATE user_addresses SET is_default = FALSE WHERE user_id = :user_id';
+                    $resetStmt = $this->conn->prepare($resetQuery);
+                    $resetStmt->bindParam(':user_id', $id);
+                    $resetStmt->execute();
+                    break;
+                }
             }
-        } catch (PDOException $e) {
-            error_log('Database error: ' . $e->getMessage());
-            return ['success' => false, 'errors' => ['An error occurred. Please try again.']];
+    
+            foreach ($addressData as $address) {
+                $addressQuery = '';
+                $addressParams = [':user_id' => $id];
+                
+                if (isset($address['id']) && !empty($address['id'])) {
+                    $checkQuery = 'SELECT id FROM user_addresses WHERE id = :id AND user_id = :user_id';
+                    $checkStmt = $this->conn->prepare($checkQuery);
+                    $checkStmt->bindParam(':id', $address['id']);
+                    $checkStmt->bindParam(':user_id', $id);
+                    $checkStmt->execute();
+                    
+                    if ($checkStmt->fetch(PDO::FETCH_ASSOC)) {
+                        $addressUpdates = [];
+                        $addressParams[':id'] = $address['id'];
+                        
+                        foreach ($address as $key => $value) {
+                            if ($key !== 'id' && in_array($key, ['home_address', 'barangay', 'city', 'is_default'])) {
+                                $addressUpdates[] = "{$key} = :{$key}";
+                                $addressParams[":{$key}"] = $key === 'is_default' ? (bool)$value : $value;
+                            }
+                        }
+                        
+                        if (!empty($addressUpdates)) {
+                            $addressQuery = 'UPDATE user_addresses SET ' . implode(', ', $addressUpdates) . ' WHERE id = :id AND user_id = :user_id';
+                            $addressChanged = true;
+                        }
+                    } else {
+                        $response['warnings'][] = "Address ID {$address['id']} not found for this user.";
+                        continue;
+                    }
+                } else {
+                    $addressQuery = 'INSERT INTO user_addresses 
+                                   (user_id, home_address, barangay, city, is_default) 
+                                   VALUES (:user_id, :home_address, :barangay, :city, :is_default)';
+                    
+                    $addressParams = array_merge($addressParams, [
+                        ':home_address' => $address['home_address'] ?? null,
+                        ':barangay' => $address['barangay'] ?? null,
+                        ':city' => $address['city'] ?? null,
+                        ':is_default' => $address['is_default'] ?? false
+                    ]);
+                    $addressChanged = true;
+                }
+                
+                if ($addressQuery) {
+                    $addressStmt = $this->conn->prepare($addressQuery);
+                    try {
+                        if (!$addressStmt->execute($addressParams)) {
+                            $response['warnings'][] = 'Failed to process an address.';
+                        }
+                    } catch (PDOException $e) {
+                        error_log('Address update error: ' . $e->getMessage());
+                        $response['warnings'][] = 'Error processing an address: ' . $e->getMessage();
+                    }
+                }
+            }
         }
     
-        return ['success' => false, 'errors' => ['Unknown error occurred.']];
+        if (!$hasChanges && !$addressChanged && empty($response['warnings'])) {
+            return ['success' => false, 'errors' => ['No changes detected.']];
+        }
+    
+        return $response;
+    }
+    
+    // Helper method to fetch password separately
+    private function getPasswordById($id) {
+        $query = 'SELECT password FROM ' . $this->table . ' WHERE id = :id';
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':id', $id);
+        $stmt->execute();
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $result ? $result['password'] : null;
     }
 
-    
     public function delete($id) {
         $query = 'DELETE FROM ' . $this->table . ' WHERE id = :id';
         $stmt = $this->conn->prepare($query);
@@ -298,6 +402,7 @@ class User {
         try {
             if ($stmt->execute()) {
                 if ($stmt->rowCount() > 0) {
+                    // Note: Addresses will be automatically deleted due to ON DELETE CASCADE
                     return ['success' => true, 'message' => 'User deleted successfully.'];
                 } else {
                     return ['success' => false, 'errors' => ['User not found.']];
@@ -311,6 +416,4 @@ class User {
         return ['success' => false, 'errors' => ['Unknown error occurred.']];
     }
 }
-
-
-
+?>

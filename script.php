@@ -1,31 +1,32 @@
 <?php
+//script.php
 $timestamp = time();
 $payload = '{
-  "data": {
-    "id": "evt_123456789",
-    "type": "event",
-    "attributes": {
-      "type": "payment.failed",
-      "livemode": false,
-      "data": {
-        "id": "pay_qLT9m4kV6CZtczfMBz147YgG",
-        "type": "payment",
+    "data": {
+        "id": "evt_test_123",
+        "type": "event",
         "attributes": {
-          "amount": 10000,
-          "currency": "PHP",
-          "description": "Order Payment",
-          "status": "failed",
-          "reference_number": "order_67c6a53d6361b",
-          "paid_at": 1698765432
+            "type": "payment.failed",
+            "data": {
+                "id": "pay_3J5qwGgGcfZvFfw47ZEcCCc7",
+                "type": "payment",
+                "attributes": {
+                    "amount": 10000,
+                    "currency": "PHP",
+                    "description": "Test Payment",
+                    "status": "fail",
+                    "reference_number": "order_67cab7ac93545",
+                    "created_at": 1677654321,
+                    "updated_at": 1677654321
+                }
+            },
+            "livemode": false,
+            "created_at": 1677654321,
+            "updated_at": 1677654321
         }
-      },
-      "previous_data": {},
-      "created_at": 1698765432,
-      "updated_at": 1698765432
     }
-  }
 }';
-$webhookSecret = 'whsk_LpK3Shz3HY9QYhitp4G1DR5M';
+$webhookSecret = 'whsk_Ji7eKUdZEYD4hQhbUYFUu9NL';
 $dataToSign = $timestamp . '.' . $payload;
 $signature = hash_hmac('sha256', $dataToSign, $webhookSecret);
 $signatureHeader = "t=$timestamp,te=$signature";
