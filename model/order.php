@@ -28,14 +28,14 @@ class Order {
     public function getOrderById($user_id) {
         $query = 'SELECT 
             o.order_id, o.user_id, o.payment_method, o.payment_status, o.status, o.reference_number, 
-            o.paymongo_session_id, o.paymongo_payment_id, o.address_id,  
+            o.paymongo_session_id, o.paymongo_payment_id, 
+            o.home_address, o.barangay, o.city,  -- Updated to use orders table fields
             oi.quantity, p.name AS product_name, p.price AS product_price, (oi.quantity * p.price) AS total_price, 
             p.image_url AS product_image, p.brand AS product_brand,
-            ua.home_address, ua.barangay, ua.city, o.created_at, o.updated_at
+            o.created_at, o.updated_at
         FROM ' . $this->orderTable . ' o
         LEFT JOIN order_items oi ON o.order_id = oi.order_id
         LEFT JOIN products p ON oi.product_id = p.product_id
-        LEFT JOIN user_addresses ua ON o.address_id = ua.id
         WHERE o.user_id = :user_id';
         
         $stmt = $this->conn->prepare($query);
@@ -69,7 +69,7 @@ class Order {
                     "reference_number" => $referenceNumber,
                     "success_url" => $success_url,
                     "cancel_url" => $cancel_url,
-                    "metadata" => ["reference_number" => $referenceNumber] // Add to metadata as fallback
+                    "metadata" => ["reference_number" => $referenceNumber]
                 ]
             ]
         ];
@@ -104,11 +104,15 @@ class Order {
         try {
             $this->conn->beginTransaction();
     
-            // Validate address_id exists in user_addresses and belongs to the user
-            $query = "SELECT id FROM user_addresses WHERE id = ? AND user_id = ?";
+            // Fetch address details from user_addresses
+            $query = "SELECT home_address, barangay, city 
+                      FROM user_addresses 
+                      WHERE id = ? AND user_id = ?";
             $stmt = $this->conn->prepare($query);
             $stmt->execute([$address_id, $user_id]);
-            if (!$stmt->fetch()) {
+            $address = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+            if (!$address) {
                 throw new Exception("Invalid or unauthorized address ID.");
             }
     
@@ -131,11 +135,21 @@ class Order {
             $order_status = ($payment_method === 'cod') ? 'pending' : 'processing';
             $referenceNumber = uniqid("order_");
     
-            // Updated query to include address_id
-            $query = "INSERT INTO {$this->orderTable} (user_id, total_price, payment_method, status, reference_number, address_id) 
-                      VALUES (?, ?, ?, ?, ?, ?)";
+            // Updated query to store address details instead of address_id
+            $query = "INSERT INTO {$this->orderTable} 
+                      (user_id, total_price, payment_method, status, reference_number, home_address, barangay, city) 
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $this->conn->prepare($query);
-            $stmt->execute([$user_id, $totalAmount, $payment_method, $order_status, $referenceNumber, $address_id]);
+            $stmt->execute([
+                $user_id, 
+                $totalAmount, 
+                $payment_method, 
+                $order_status, 
+                $referenceNumber, 
+                $address['home_address'], 
+                $address['barangay'], 
+                $address['city']
+            ]);
     
             $order_id = $this->conn->lastInsertId();
     
@@ -143,6 +157,10 @@ class Order {
                 $query = "INSERT INTO {$this->orderItemTable} (order_id, product_id, quantity, price) VALUES (?, ?, ?, ?)";
                 $stmt = $this->conn->prepare($query);
                 $stmt->execute([$order_id, $item['product_id'], $item['quantity'], $item['product_price']]);
+
+                $query = "UPDATE products SET stock = stock - ? WHERE product_id = ?";
+                $stmt = $this->conn->prepare($query);
+                $stmt->execute([$item['quantity'], $item['product_id']]);
             }
     
             $query = "DELETE FROM {$this->cartTable} WHERE cart_id IN ($placeholders)";
@@ -161,7 +179,14 @@ class Order {
                     throw new Exception("User not found.");
                 }
     
-                $paymentLink = $this->createGcashCheckoutSession($cartItems, $user['first_name'], $user['last_name'], "https://yourwebsite.com/success", "https://yourwebsite.com/cancel", $referenceNumber);
+                $paymentLink = $this->createGcashCheckoutSession(
+                    $cartItems, 
+                    $user['first_name'], 
+                    $user['last_name'], 
+                    "https://yourwebsite.com/success", 
+                    "https://yourwebsite.com/cancel", 
+                    $referenceNumber
+                );
     
                 if (!is_string($paymentLink)) {
                     throw new Exception("Failed to create GCash checkout session.");
@@ -185,9 +210,7 @@ class Order {
         }
     }
 
-    // New method to verify webhook podpis
     public function verifyWebhookSignature($requestBody, $signatureHeader, $webhookSecret) {
-        // Split the signature header (e.g., "t=12345,te=abcde")
         $signatureParts = preg_split("/,/", $signatureHeader);
         $timePart = preg_split("/=/", $signatureParts[0]);
         $signaturePart = preg_split("/=/", $signatureParts[1]);
@@ -195,17 +218,12 @@ class Order {
         $timestamp = $timePart[1];
         $receivedSignature = $signaturePart[1];
 
-        // Concatenate timestamp and request body
         $dataToSign = $timestamp . '.' . $requestBody;
-
-        // Compute HMAC SHA256 signature
         $computedSignature = hash_hmac('sha256', $dataToSign, $webhookSecret);
 
-        // Compare signatures
         return hash_equals($computedSignature, $receivedSignature);
     }
 
-    // New method to handle webhook payload and update order status
     public function handleWebhook($eventData) {
         $event = json_decode($eventData, true);
         $eventType = $event['data']['attributes']['type'] ?? null;

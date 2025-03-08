@@ -415,5 +415,58 @@ class User {
     
         return ['success' => false, 'errors' => ['Unknown error occurred.']];
     }
+
+    public function deleteAddresses($userId, array $addressIds) {
+        if (empty($addressIds)) {
+            return ['success' => false, 'errors' => ['No address IDs provided.']];
+        }
+    
+        // Validate all IDs are numeric
+        if (!array_reduce($addressIds, fn($carry, $id) => $carry && is_numeric($id), true)) {
+            return ['success' => false, 'errors' => ['All address IDs must be numeric.']];
+        }
+        $addressIds = array_map('intval', $addressIds); // Ensure integers
+    
+        // Verify addresses belong to the user
+        $placeholders = implode(',', array_fill(0, count($addressIds), '?'));
+        $query = "SELECT id FROM user_addresses WHERE user_id = ? AND id IN ($placeholders)";
+        $stmt = $this->conn->prepare($query);
+        $stmt->execute(array_merge([$userId], $addressIds));
+        $validAddressIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+        if (empty($validAddressIds)) {
+            return ['success' => false, 'errors' => ['No valid addresses found for this user.']];
+        }
+    
+        $addressesToDelete = array_intersect($addressIds, $validAddressIds);
+        if (empty($addressesToDelete)) {
+            return ['success' => false, 'errors' => ['No addresses to delete after validation.']];
+        }
+    
+        // Delete the addresses
+        $deletePlaceholders = implode(',', array_fill(0, count($addressesToDelete), '?'));
+        $deleteQuery = "DELETE FROM user_addresses WHERE user_id = ? AND id IN ($deletePlaceholders)";
+        $deleteStmt = $this->conn->prepare($deleteQuery);
+    
+        try {
+            $deleteStmt->execute(array_merge([$userId], $addressesToDelete));
+            $deletedCount = $deleteStmt->rowCount();
+            
+            if ($deletedCount > 0) {
+                $message = "Successfully deleted $deletedCount address" . ($deletedCount > 1 ? 'es' : '') . ".";
+                $response = ['success' => true, 'message' => $message];
+                if (count($addressesToDelete) < count($addressIds)) {
+                    $notDeleted = array_diff($addressIds, $addressesToDelete);
+                    $response['warnings'] = ['Some addresses could not be deleted: ' . implode(', ', $notDeleted)];
+                }
+                return $response;
+            }
+            return ['success' => false, 'errors' => ['No addresses were deleted.']];
+        } catch (PDOException $e) {
+            error_log('Database Error: ' . $e->getMessage());
+            // Temporarily return detailed error for debugging
+            return ['success' => false, 'errors' => ['Database error: ' . $e->getMessage()]];
+        }
+    }
 }
 ?>

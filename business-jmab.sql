@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Mar 07, 2025 at 04:52 PM
+-- Generation Time: Mar 08, 2025 at 05:39 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -69,9 +69,11 @@ CREATE TABLE `orders` (
   `paymongo_payment_id` varchar(255) DEFAULT NULL,
   `paymongo_session_id` varchar(255) DEFAULT NULL,
   `paymongo_source_id` varchar(255) DEFAULT NULL,
-  `address_id` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `home_address` varchar(255) NOT NULL,
+  `barangay` varchar(100) NOT NULL,
+  `city` varchar(100) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -179,14 +181,6 @@ CREATE TABLE `user_addresses` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
--- Dumping data for table `user_addresses`
---
-
-INSERT INTO `user_addresses` (`id`, `user_id`, `home_address`, `barangay`, `city`, `is_default`, `created_at`, `updated_at`) VALUES
-(6, 7, '99 Basista', 'Tebeng', 'Binmaley', 0, '2025-03-06 13:56:44', '2025-03-07 04:45:28'),
-(7, 7, '89 Tebeng', 'Tebeng', 'Dagupan', 1, '2025-03-07 04:45:38', '2025-03-07 04:45:38');
-
---
 -- Indexes for dumped tables
 --
 
@@ -212,8 +206,7 @@ ALTER TABLE `messages`
 ALTER TABLE `orders`
   ADD PRIMARY KEY (`order_id`),
   ADD UNIQUE KEY `reference_number` (`reference_number`),
-  ADD KEY `user_id` (`user_id`),
-  ADD KEY `address_id` (`address_id`);
+  ADD KEY `user_id` (`user_id`);
 
 --
 -- Indexes for table `order_items`
@@ -287,7 +280,7 @@ ALTER TABLE `users`
 -- AUTO_INCREMENT for table `user_addresses`
 --
 ALTER TABLE `user_addresses`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- Constraints for dumped tables
@@ -311,8 +304,7 @@ ALTER TABLE `messages`
 -- Constraints for table `orders`
 --
 ALTER TABLE `orders`
-  ADD CONSTRAINT `orders_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `orders_ibfk_2` FOREIGN KEY (`address_id`) REFERENCES `user_addresses` (`id`);
+  ADD CONSTRAINT `orders_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `order_items`

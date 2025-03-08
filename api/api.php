@@ -78,7 +78,16 @@ try {
             break;
 
         case 'DELETE':
-            if ($resourceId !== null) {
+            if ($resource === 'users' && isset($path[2]) && $path[2] === 'addresses') {
+                $data = json_decode(file_get_contents('php://input'), true) ?? [];
+                $addressIds = $data['address_ids'] ?? [];
+                    
+                if (empty($addressIds) || !is_array($addressIds)) {
+                    throw new Exception('Array of address IDs is required in the request body.', 400);
+                }
+                    
+                $response = $controller->deleteAddresses($resourceId, $addressIds);
+            } elseif ($resourceId !== null) {
                 $response = $controller->delete($resourceId);
             } else {
                 throw new Exception('Resource ID required for deletion.', 400);

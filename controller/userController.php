@@ -171,5 +171,39 @@ class UserController {
             'body' => ['success' => false, 'errors' => $result['errors']]
         ];
     }
+
+    public function deleteAddresses($userId, array $addressIds) {
+        $this->authenticateAPI();
+        
+        if (empty($userId)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['User ID is required.']]
+            ];
+        }
+    
+        $result = $this->userModel->deleteAddresses($userId, $addressIds);
+        
+        if ($result['success']) {
+            $response = [
+                'status' => 200,
+                'body' => [
+                    'success' => true,
+                    'message' => $result['message']
+                ]
+            ];
+            
+            if (isset($result['warnings'])) {
+                $response['body']['warnings'] = $result['warnings'];
+            }
+            
+            return $response;
+        }
+        
+        return [
+            'status' => 400,
+            'body' => ['success' => false, 'errors' => $result['errors']]
+        ];
+    }
 }
 ?>
