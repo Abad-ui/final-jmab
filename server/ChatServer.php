@@ -32,15 +32,22 @@ class ChatServer implements MessageComponentInterface {
             return;
         }
 
-        // Validate required fields
-        if (!isset($data['receiver_id']) || !isset($data['sender_id'])) {
-            error_log("Missing receiver_id or sender_id in message: $msg");
+        // Handle different types of messages
+        $targetUserId = null;
+        if (isset($data['receiver_id'])) {
+            // This is a message
+            $targetUserId = $data['receiver_id'];
+        } elseif (isset($data['user_id'])) {
+            // This is a notification
+            $targetUserId = $data['user_id'];
+        } else {
+            error_log("Missing receiver_id or user_id in message: $msg");
             return;
         }
 
-        // Broadcast to the specific receiver
+        // Broadcast to the specific target user
         foreach ($this->clients as $client) {
-            if (isset($client->userId) && $client->userId == $data['receiver_id']) {
+            if (isset($client->userId) && $client->userId == $targetUserId) {
                 $client->send(json_encode($data));
                 error_log("Sent to {$client->resourceId} (User ID: {$client->userId})");
             }

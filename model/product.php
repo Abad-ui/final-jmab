@@ -24,10 +24,31 @@ class Product {
         return $errors;
     }
 
-    public function getProducts() {
-        $stmt = $this->conn->prepare('SELECT * FROM ' . $this->table);
+    public function getProducts($page = 1, $perPage = 20) {
+        $offset = ($page - 1) * $perPage;
+
+        // Get total count
+        $countStmt = $this->conn->prepare('SELECT COUNT(*) FROM ' . $this->table);
+        $countStmt->execute();
+        $totalProducts = $countStmt->fetchColumn();
+
+        // Get paginated products
+        $query = 'SELECT * FROM ' . $this->table . ' ORDER BY product_id DESC LIMIT :perPage OFFSET :offset';
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return [
+            'success' => true,
+            'products' => $products,
+            'page' => $page,
+            'perPage' => $perPage,
+            'totalProducts' => $totalProducts,
+            'totalPages' => ceil($totalProducts / $perPage)
+        ];
     }
 
     public function getProductById($product_id) {
@@ -81,13 +102,13 @@ class Product {
                 return ['success' => false, 'errors' => ['Price must be numeric.']];
             }
     
-            if (isset($data[$field]) && $data[$field] !== '') { // Skip empty strings
+            if (isset($data[$field]) && $data[$field] !== '') {
                 $updates[] = "$field = :$field";
                 $params[":$field"] = $data[$field];
             }
         }
     
-        if (isset($data['tags']) && $data['tags'] !== '') { // Skip empty tags
+        if (isset($data['tags']) && $data['tags'] !== '') {
             $updates[] = 'tags = :tags';
             $params[':tags'] = json_encode($data['tags']);
         }
@@ -111,7 +132,6 @@ class Product {
             return ['success' => false, 'errors' => ['Something went wrong. Please try again.']];
         }
     }
-    
 
     public function deleteProduct($product_id) {
         $stmt = $this->conn->prepare('DELETE FROM ' . $this->table . ' WHERE product_id = :product_id');
@@ -127,35 +147,66 @@ class Product {
         }
     }
 
-    public function searchProducts($filters = []) {
+    public function searchProducts($filters = [], $page = 1, $perPage = 20) {
         $query = 'SELECT * FROM ' . $this->table . ' WHERE 1=1';
+        $countQuery = 'SELECT COUNT(*) FROM ' . $this->table . ' WHERE 1=1';
         $params = [];
 
         if (!empty($filters['brand'])) {
             $query .= ' AND brand LIKE :brand';
+            $countQuery .= ' AND brand LIKE :brand';
             $params[':brand'] = '%' . $filters['brand'] . '%';
         }
         if (!empty($filters['name'])) {
             $query .= ' AND name LIKE :name';
+            $countQuery .= ' AND name LIKE :name';
             $params[':name'] = '%' . $filters['name'] . '%';
         }
         if (!empty($filters['category'])) {
             $query .= ' AND category = :category';
+            $countQuery .= ' AND category = :category';
             $params[':category'] = $filters['category'];
         }
         if (!empty($filters['subcategory'])) {
             $query .= ' AND subcategory = :subcategory';
+            $countQuery .= ' AND subcategory = :subcategory';
             $params[':subcategory'] = $filters['subcategory'];
         }
         if (!empty($filters['tags'])) {
             $query .= ' AND JSON_CONTAINS(tags, :tags)';
+            $countQuery .= ' AND JSON_CONTAINS(tags, :tags)';
             $params[':tags'] = json_encode($filters['tags']);
         }
 
+        // Get total count
+        $countStmt = $this->conn->prepare($countQuery);
+        foreach ($params as $key => $value) {
+            $countStmt->bindValue($key, $value);
+        }
+        $countStmt->execute();
+        $totalProducts = $countStmt->fetchColumn();
+
+        // Add pagination to main query
+        $offset = ($page - 1) * $perPage;
+        $query .= ' ORDER BY product_id DESC LIMIT :perPage OFFSET :offset';
         $stmt = $this->conn->prepare($query);
-        foreach ($params as $key => $value) $stmt->bindValue($key, $value);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return [
+            'success' => true,
+            'products' => $products,
+            'page' => $page,
+            'perPage' => $perPage,
+            'totalProducts' => $totalProducts,
+            'totalPages' => ceil($totalProducts / $perPage)
+        ];
     }
 }
 ?>

@@ -1,17 +1,30 @@
 <?php
+// Handle OPTIONS request (preflight request)
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    header('Access-Control-Allow-Origin: *');  // Adjust the origin if needed
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization');
+    header('HTTP/1.1 200 OK');
+    exit();
+}
+
 require_once '../vendor/autoload.php';
 require_once '../model/user.php';
 require_once '../model/cart.php';
 require_once '../model/product.php';
 require_once '../model/order.php';
 require_once '../model/message.php';
+require_once '../model/notification.php';  // Added notification model
 require_once '../controller/userController.php';
 require_once '../controller/cartController.php';
 require_once '../controller/productController.php';
 require_once '../controller/orderController.php';
 require_once '../controller/messageController.php';
+require_once '../controller/notificationController.php';  // Added notification controller
 
+// Set CORS headers for actual API requests
 header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *');  // You can replace '*' with a specific origin URL if needed
 
 $method = $_SERVER['REQUEST_METHOD'];
 $endpoint = isset($_GET['endpoint']) 
@@ -23,10 +36,41 @@ $path = explode('/', trim($endpoint, '/'));
 
 $resource = $path[0] ?? '';
 $subResource = $path[1] ?? null;
-$resourceId = ($resource === 'messages' && $subResource === 'user' && isset($path[2])) ? $path[2] : ($path[1] ?? null);
+$resourceId = null;
+$page = max(1, (int)($_GET['page'] ?? 1)); // Default from query params
+$perPage = max(1, min(100, (int)($_GET['perPage'] ?? 20))); // Default from query params, max 100
+
+// Parse pagination from path if present
+if (in_array('page', $path) && in_array('perPage', $path)) {
+    $pageIndex = array_search('page', $path);
+    $perPageIndex = array_search('perPage', $path);
+    if ($pageIndex !== false && $perPageIndex !== false && isset($path[$pageIndex + 1]) && isset($path[$perPageIndex + 1])) {
+        $page = max(1, (int)$path[$pageIndex + 1]); // Override with path value
+        $perPage = max(1, min(100, (int)$path[$perPageIndex + 1])); // Override with path value
+    }
+} elseif (in_array('page', $path)) {
+    $pageIndex = array_search('page', $path);
+    if ($pageIndex !== false && isset($path[$pageIndex + 1])) {
+        $page = max(1, (int)$path[$pageIndex + 1]); // Override with path value
+    }
+}
+
+// Determine resourceId and specific sub-resources
+if ($resource === 'messages' && $subResource === 'user' && isset($path[2])) {
+    $resourceId = $path[2];
+} elseif ($resource === 'messages' && $subResource === 'conversation' && isset($path[2]) && isset($path[3])) {
+    $userId = $path[2];
+    $otherUserId = $path[3];
+} elseif ($resource === 'notifications' && $subResource === 'user' && isset($path[2])) {
+    $resourceId = $path[2];
+} elseif ($resource === 'notifications' && $subResource === 'read' && isset($path[2])) {
+    $resourceId = $path[2];  // For marking notification as read
+} elseif (!in_array('page', $path) && !in_array('perPage', $path) && isset($path[1])) {
+    $resourceId = $path[1];
+}
 
 error_log("Raw endpoint: $endpoint");
-error_log("Parsed - Resource: '$resource', SubResource: '$subResource', ResourceId: '$resourceId', Method: $method");
+error_log("Parsed - Resource: '$resource', SubResource: '$subResource', ResourceId: '$resourceId', Page: '$page', PerPage: '$perPage', Method: $method");
 
 $controllers = [
     'users' => new UserController(new User()),
@@ -35,6 +79,7 @@ $controllers = [
     'orders' => new OrderController(new Order()),
     'webhook' => new OrderController(new Order()),
     'messages' => new MessageController(new Message()),
+    'notifications' => new NotificationController(new Notification()),  // Added notifications controller
 ];
 
 try {
@@ -54,22 +99,25 @@ try {
             elseif ($resource === 'carts' && $resourceId === null) $response = $controller->create($data);
             elseif ($resource === 'webhook' && $subResource === 'paymongo') $response = $controller->handleWebhook();
             elseif ($resource === 'messages' && $resourceId === null) $response = $controller->create($data);
+            elseif ($resource === 'notifications' && $resourceId === null) $response = $controller->create($data);
             else throw new Exception('Invalid endpoint.', 404);
             break;
 
         case 'GET':
-            $page = max(1, (int)($_GET['page'] ?? 1));
-            $perPage = max(1, min(100, (int)($_GET['perPage'] ?? 20))); // Limit perPage to 1-100
             if ($resource === 'products' && $subResource === 'search') {
                 $filters = $_GET;
                 unset($filters['endpoint'], $filters['page'], $filters['perPage']);
-                $response = $controller->search($filters);
+                $response = $controller->search($filters, $page, $perPage);
             } elseif ($resource === 'messages' && $subResource === 'user' && $resourceId !== null) {
                 $response = $controller->getMessages($resourceId, $page, $perPage);
-            } elseif ($resource === 'messages' && $subResource === 'conversation' && isset($path[2]) && isset($path[3])) {
-                $response = $controller->getConversation($path[2], $path[3], $page, $perPage);
+            } elseif ($resource === 'messages' && $subResource === 'conversation' && isset($userId) && isset($otherUserId)) {
+                $response = $controller->getConversation($userId, $otherUserId, $page, $perPage);
+            } elseif ($resource === 'notifications' && $subResource === 'user' && $resourceId !== null) {
+                $response = $controller->getUserNotifications($resourceId, $page, $perPage);
             } elseif ($resourceId === null && $subResource === null) {
-                $response = $resource === 'messages' ? $controller->getAll($page, $perPage) : $controller->getAll();
+                $response = $resource === 'messages' || $resource === 'notifications'
+                    ? $controller->getAll($page, $perPage)
+                    : $controller->getAll($page, $perPage); // Pass page and perPage to all getAll
             } elseif ($resourceId !== null) {
                 $response = $controller->getById($resourceId);
             } else {
@@ -79,8 +127,13 @@ try {
 
         case 'PUT':
             $data = json_decode(file_get_contents('php://input'), true) ?? [];
-            if ($resourceId !== null) $response = $controller->update($resourceId, $data);
-            else throw new Exception('Resource ID required for update.', 400);
+            if ($resource === 'notifications' && $subResource === 'read' && $resourceId !== null) {
+                $response = $controller->markAsRead($resourceId);
+            } elseif ($resourceId !== null) {
+                $response = $controller->update($resourceId, $data);
+            } else {
+                throw new Exception('Resource ID required for update.', 400);
+            }
             break;
 
         case 'DELETE':

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard</title>
     <style>
+        /* Same styles as before */
         * {
             box-sizing: border-box;
             margin: 0;
@@ -145,7 +146,6 @@
         
         <div class="messaging-section">
             <div class="users-list" id="users-list">
-                <!-- Users will be listed here -->
                 <div class="user-item" data-id="all">All Messages</div>
             </div>
             
@@ -174,19 +174,20 @@
         let allUsers = [];
         let token;
 
+        // WebSocket setup
+        let ws;
+
         document.addEventListener('DOMContentLoaded', function() {
             // Check if user is logged in and is admin
             token = localStorage.getItem('token');
             currentUser = JSON.parse(localStorage.getItem('user'));
             
             if (!token || !currentUser) {
-                // Redirect to login page if not logged in
                 window.location.href = 'sign-in.html';
                 return;
             }
             
             if (currentUser.roles !== 'admin') {
-                // Redirect to customer page if not admin
                 window.location.href = 'customer.html';
                 return;
             }
@@ -197,27 +198,48 @@
             // Fetch all users
             fetchUsers();
             
-            // Fetch all messages (admin can see all)
+            // Initial fetch of all messages
             fetchAllMessages();
             
             // Add event listeners
             document.getElementById('logout-btn').addEventListener('click', logout);
             document.getElementById('send-btn').addEventListener('click', sendMessage);
             document.getElementById('message-input').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    sendMessage();
-                }
+                if (e.key === 'Enter') sendMessage();
             });
             
-            // Set up periodic refresh
-            setInterval(function() {
-                if (selectedUserId === 'all') {
-                    fetchAllMessages();
-                } else if (selectedUserId) {
-                    fetchMessages(selectedUserId);
-                }
-            }, 5000);
+            // Initialize WebSocket
+            initWebSocket();
         });
+        
+        function initWebSocket() {
+            ws = new WebSocket('ws://localhost:8080');
+            
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ userId: currentUser.id }));
+                console.log('WebSocket connected for admin:', currentUser.id);
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                console.log('WebSocket message received:', data);
+                
+                // Check if it's a message
+                if (data.sender_id && data.receiver_id) {
+                    if (selectedUserId === 'all') {
+                        fetchAllMessages(); // Refresh all messages for admin
+                    } else if (data.sender_id == selectedUserId || data.receiver_id == selectedUserId) {
+                        fetchMessages(selectedUserId); // Refresh specific conversation
+                    } else if (data.receiver_id == currentUser.id) {
+                        // New message from a user not currently selected
+                        fetchUsers(); // Refresh user list to indicate new message
+                    }
+                }
+            };
+            
+            ws.onerror = (error) => console.error('WebSocket error:', error);
+            ws.onclose = () => console.log('WebSocket disconnected');
+        }
         
         function displayUserInfo() {
             const userInfoElement = document.getElementById('user-info');
@@ -229,10 +251,8 @@
         }
         
         function fetchUsers() {
-            fetch('http://localhost/final-jmab1/api/users', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+            fetch('http://localhost/final-jmab/api/users', {
+                headers: { 'Authorization': `Bearer ${token}` }
             })
             .then(response => response.json())
             .then(data => {
@@ -243,14 +263,11 @@
                     console.error('Failed to fetch users:', data.errors);
                 }
             })
-            .catch(error => {
-                console.error('Error:', error);
-            });
+            .catch(error => console.error('Error:', error));
         }
         
         function displayUsers(users) {
             const usersListElement = document.getElementById('users-list');
-            // Keep the "All Messages" option
             let usersHtml = '<div class="user-item active" data-id="all">All Messages</div>';
             
             users.forEach(user => {
@@ -265,7 +282,6 @@
             
             usersListElement.innerHTML = usersHtml;
             
-            // Add click event to user items
             document.querySelectorAll('.user-item').forEach(item => {
                 item.addEventListener('click', function() {
                     document.querySelectorAll('.user-item').forEach(i => i.classList.remove('active'));
@@ -280,72 +296,53 @@
                         const user = allUsers.find(u => u.id == selectedUserId);
                         if (user) {
                             document.getElementById('conversation-header').textContent = `${user.first_name} ${user.last_name}`;
+                            fetchMessages(selectedUserId);
                         }
-                        fetchMessages(selectedUserId);
                     }
                 });
             });
         }
         
         function fetchAllMessages() {
-            fetch('http://localhost/final-jmab1/api/messages', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+            fetch('http://localhost/final-jmab/api/messages', {
+                headers: { 'Authorization': `Bearer ${token}` }
             })
             .then(response => response.json())
             .then(data => {
-                if (data.success) {
-                    displayAllMessages(data.messages);
-                } else {
-                    console.error('Failed to fetch messages:', data.errors);
-                }
+                if (data.success) displayAllMessages(data.messages);
+                else console.error('Failed to fetch messages:', data.errors);
             })
-            .catch(error => {
-                console.error('Error:', error);
-            });
+            .catch(error => console.error('Error:', error));
         }
         
         function fetchMessages(userId) {
-            fetch(`http://localhost/final-jmab1/api/messages/user/${userId}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+            fetch(`http://localhost/final-jmab/api/messages/user/${userId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
             })
             .then(response => response.json())
             .then(data => {
-                if (data.success) {
-                    displayMessages(data.messages);
-                } else {
-                    console.error('Failed to fetch messages:', data.errors);
-                }
+                if (data.success) displayMessages(data.messages);
+                else console.error('Failed to fetch messages:', data.errors);
             })
-            .catch(error => {
-                console.error('Error:', error);
-            });
+            .catch(error => console.error('Error:', error));
         }
         
         function displayAllMessages(messages) {
             const messagesContainer = document.getElementById('messages-container');
-            
             if (!messages || messages.length === 0) {
                 messagesContainer.innerHTML = '<div class="no-user-selected"><p>No messages found</p></div>';
                 return;
             }
             
             let messagesHtml = '';
-            
-            // Sort messages by timestamp
             messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
             
             messages.forEach(message => {
                 const isSent = parseInt(message.sender_id) === currentUser.id;
                 const sender = allUsers.find(u => u.id == message.sender_id);
                 const receiver = allUsers.find(u => u.id == message.receiver_id);
-                
                 const senderName = sender ? `${sender.first_name} ${sender.last_name}` : `User ${message.sender_id}`;
                 const receiverName = receiver ? `${receiver.first_name} ${receiver.last_name}` : `User ${message.receiver_id}`;
-                
                 const formattedDate = new Date(message.timestamp).toLocaleString();
                 
                 messagesHtml += `
@@ -364,15 +361,12 @@
         
         function displayMessages(messages) {
             const messagesContainer = document.getElementById('messages-container');
-            
             if (!messages || messages.length === 0) {
                 messagesContainer.innerHTML = '<div class="no-user-selected"><p>No messages found</p></div>';
                 return;
             }
             
             let messagesHtml = '';
-            
-            // Sort messages by timestamp
             messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
             
             messages.forEach(message => {
@@ -395,9 +389,7 @@
             const messageInput = document.getElementById('message-input');
             const message = messageInput.value.trim();
             
-            if (!message || !selectedUserId || selectedUserId === 'all') {
-                return;
-            }
+            if (!message || !selectedUserId || selectedUserId === 'all') return;
             
             const requestData = {
                 sender_id: currentUser.id,
@@ -405,7 +397,7 @@
                 message: message
             };
             
-            fetch('http://localhost/final-jmab1/api/messages', {
+            fetch('http://localhost/final-jmab/api/messages', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -417,7 +409,7 @@
             .then(data => {
                 if (data.success) {
                     messageInput.value = '';
-                    fetchMessages(selectedUserId);
+                    fetchMessages(selectedUserId); // Immediate refresh after sending
                 } else {
                     console.error('Failed to send message:', data.errors);
                     alert('Failed to send message: ' + data.errors.join(', '));

@@ -28,11 +28,18 @@ class ProductController {
         return in_array('admin', $roles);
     }
 
-    public function getAll() {
-        $products = $this->productModel->getProducts();
+    public function getAll($page = 3, $perPage = 4) {
+        $result = $this->productModel->getProducts($page, $perPage);
         return [
             'status' => 200,
-            'body' => ['success' => true, 'products' => $products]
+            'body' => [
+                'success' => true,
+                'products' => $result['products'],
+                'page' => $result['page'],
+                'perPage' => $result['perPage'],
+                'totalProducts' => $result['totalProducts'],
+                'totalPages' => $result['totalPages']
+            ]
         ];
     }
 
@@ -115,7 +122,7 @@ class ProductController {
         ];
     }
 
-    public function search(array $filters) {
+    public function search(array $filters, $page = 1, $perPage = 20) {
         $filters = [
             'brand' => $filters['brand'] ?? null,
             'category' => $filters['category'] ?? null,
@@ -124,10 +131,18 @@ class ProductController {
             'tags' => isset($filters['tags']) ? (is_array($filters['tags']) ? $filters['tags'] : explode(',', $filters['tags'])) : null
         ];
 
-        $results = $this->productModel->searchProducts($filters);
-        return !empty($results) 
-            ? ['status' => 200, 'body' => ['success' => true, 'data' => $results]] 
-            : ['status' => 404, 'body' => ['success' => false, 'errors' => ['No products found.']]];
+        $result = $this->productModel->searchProducts($filters, $page, $perPage);
+        return [
+            'status' => 200,
+            'body' => [
+                'success' => true,
+                'products' => $result['products'],
+                'page' => $result['page'],
+                'perPage' => $result['perPage'],
+                'totalProducts' => $result['totalProducts'],
+                'totalPages' => $result['totalPages']
+            ]
+        ];
     }
 }
 ?>

@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Customer Dashboard</title>
     <style>
+        /* Same styles as before */
         * {
             box-sizing: border-box;
             margin: 0;
@@ -157,6 +158,9 @@
         let admins = [];
         let selectedAdminId = null;
         let token;
+        
+        // WebSocket setup
+        let ws;
 
         document.addEventListener('DOMContentLoaded', function() {
             // Check if user is logged in
@@ -164,13 +168,11 @@
             currentUser = JSON.parse(localStorage.getItem('user'));
             
             if (!token || !currentUser) {
-                // Redirect to login page if not logged in
                 window.location.href = 'sign-in.html';
                 return;
             }
             
             if (currentUser.roles === 'admin') {
-                // Redirect to admin page if admin
                 window.location.href = 'admin.html';
                 return;
             }
@@ -181,25 +183,46 @@
             // Fetch admins
             fetchAdmins();
             
-            // Fetch messages for the current user
+            // Initial fetch of messages
             fetchMessages();
             
             // Add event listeners
             document.getElementById('logout-btn').addEventListener('click', logout);
             document.getElementById('send-btn').addEventListener('click', sendMessage);
             document.getElementById('message-input').addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    sendMessage();
-                }
+                if (e.key === 'Enter') sendMessage();
             });
             
             document.getElementById('admin-select').addEventListener('change', function() {
                 selectedAdminId = this.value;
             });
             
-            // Set up periodic refresh
-            setInterval(fetchMessages, 5000);
+            // Initialize WebSocket
+            initWebSocket();
         });
+        
+        function initWebSocket() {
+            ws = new WebSocket('ws://localhost:8080');
+            
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ userId: currentUser.id }));
+                console.log('WebSocket connected for customer:', currentUser.id);
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                console.log('WebSocket message received:', data);
+                
+                // Check if it's a message relevant to this user
+                if (data.sender_id && data.receiver_id && 
+                    (data.sender_id == currentUser.id || data.receiver_id == currentUser.id)) {
+                    fetchMessages(); // Refresh messages instantly
+                }
+            };
+            
+            ws.onerror = (error) => console.error('WebSocket error:', error);
+            ws.onclose = () => console.log('WebSocket disconnected');
+        }
         
         function displayUserInfo() {
             const userInfoElement = document.getElementById('user-info');
@@ -210,43 +233,34 @@
         }
         
         function fetchAdmins() {
-            fetch('http://localhost/final-jmab1/api/users', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+            fetch('http://localhost/final-jmab/api/users', {
+                headers: { 'Authorization': `Bearer ${token}` }
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Filter to get only admin users
                     admins = data.users.filter(user => user.roles === 'admin');
                     displayAdmins();
                 } else {
                     console.error('Failed to fetch admins:', data.errors);
                 }
             })
-            .catch(error => {
-                console.error('Error:', error);
-            });
+            .catch(error => console.error('Error:', error));
         }
         
         function displayAdmins() {
             const adminSelect = document.getElementById('admin-select');
-            
             if (admins.length === 0) {
                 adminSelect.innerHTML = '<option value="">No admins available</option>';
                 return;
             }
             
             let options = '<option value="">Select an admin</option>';
-            
             admins.forEach(admin => {
                 options += `<option value="${admin.id}">${admin.first_name} ${admin.last_name}</option>`;
             });
             
             adminSelect.innerHTML = options;
-            
-            // If there is only one admin, select it automatically
             if (admins.length === 1) {
                 adminSelect.value = admins[0].id;
                 selectedAdminId = admins[0].id;
@@ -254,42 +268,30 @@
         }
         
         function fetchMessages() {
-            fetch(`http://localhost/final-jmab1/api/messages/user/${currentUser.id}`, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
+            fetch(`http://localhost/final-jmab/api/messages/user/${currentUser.id}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
             })
             .then(response => response.json())
             .then(data => {
-                if (data.success) {
-                    displayMessages(data.messages);
-                } else {
-                    console.error('Failed to fetch messages:', data.errors);
-                }
+                if (data.success) displayMessages(data.messages);
+                else console.error('Failed to fetch messages:', data.errors);
             })
-            .catch(error => {
-                console.error('Error:', error);
-            });
+            .catch(error => console.error('Error:', error));
         }
         
         function displayMessages(messages) {
             const messagesContainer = document.getElementById('messages-container');
-            
             if (!messages || messages.length === 0) {
                 messagesContainer.innerHTML = '<p>No messages yet. Start a conversation with support.</p>';
                 return;
             }
             
             let messagesHtml = '';
-            
-            // Sort messages by timestamp
             messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
             
             messages.forEach(message => {
                 const isSent = parseInt(message.sender_id) === currentUser.id;
                 const formattedDate = new Date(message.timestamp).toLocaleString();
-                
-                // Get admin name if it's a received message
                 let adminName = '';
                 if (!isSent) {
                     const admin = admins.find(a => a.id == message.sender_id);
@@ -314,12 +316,8 @@
             const messageInput = document.getElementById('message-input');
             const message = messageInput.value.trim();
             
-            if (!message) {
-                return;
-            }
-            
-            if (!selectedAdminId) {
-                alert('Please select an admin to message.');
+            if (!message || !selectedAdminId) {
+                if (!selectedAdminId) alert('Please select an admin to message.');
                 return;
             }
             
@@ -329,7 +327,7 @@
                 message: message
             };
             
-            fetch('http://localhost/final-jmab1/api/messages', {
+            fetch('http://localhost/final-jmab/api/messages', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -341,7 +339,7 @@
             .then(data => {
                 if (data.success) {
                     messageInput.value = '';
-                    fetchMessages();
+                    fetchMessages(); // Immediate refresh after sending
                 } else {
                     console.error('Failed to send message:', data.errors);
                     alert('Failed to send message: ' + data.errors.join(', '));
