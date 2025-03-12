@@ -3,6 +3,7 @@
         "firebase/php-jwt": "^6.11",
         "ralouphie/getallheaders": "3.0",
         "guzzlehttp/guzzle": "^7.9",
-        "cboden/ratchet": "^0.4.4"
+        "cboden/ratchet": "^0.4.4",
+        "textalk/websocket": "^1.5"
     }
 }

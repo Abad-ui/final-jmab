@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Dashboard</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+        header {
+            background-color: #4285f4;
+            color: white;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logout-btn {
+            background-color: transparent;
+            color: white;
+            border: 1px solid white;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        .user-info {
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .messaging-section {
+            display: flex;
+            flex-direction: column;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            height: calc(100vh - 200px);
+        }
+        .message-header {
+            padding: 1rem;
+            border-bottom: 1px solid #eee;
+            font-weight: bold;
+        }
+        .messages-container {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .message-input {
+            display: flex;
+            padding: 1rem;
+            border-top: 1px solid #eee;
+        }
+        .message-input input {
+            flex: 1;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .message-input button {
+            margin-left: 0.5rem;
+            padding: 0.5rem 1rem;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .message {
+            max-width: 70%;
+            padding: 0.75rem;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            word-wrap: break-word;
+        }
+        .sent {
+            align-self: flex-end;
+            background-color: #dcf8c6;
+        }
+        .received {
+            align-self: flex-start;
+            background-color: #f1f0f0;
+        }
+        .message-info {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 0.25rem;
+        }
+        .admin-selector {
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        select {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Customer Dashboard</h1>
+        <button id="logout-btn" class="logout-btn">Logout</button>
+    </header>
+    
+    <div class="container">
+        <div class="user-info" id="user-info">
+            <!-- User info will be populated here -->
+        </div>
+        
+        <div class="admin-selector">
+            <label for="admin-select">Select Admin to Message:</label>
+            <select id="admin-select">
+                <option value="">Loading admins...</option>
+            </select>
+        </div>
+        
+        <div class="messaging-section">
+            <div class="message-header">
+                Messages with Support
+            </div>
+            
+            <div class="messages-container" id="messages-container">
+                <p>Loading messages...</p>
+            </div>
+            
+            <div class="message-input">
+                <input type="text" id="message-input" placeholder="Type a message...">
+                <button id="send-btn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser;
+        let admins = [];
+        let selectedAdminId = null;
+        let token;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if user is logged in
+            token = localStorage.getItem('token');
+            currentUser = JSON.parse(localStorage.getItem('user'));
+            
+            if (!token || !currentUser) {
+                // Redirect to login page if not logged in
+                window.location.href = 'sign-in.html';
+                return;
+            }
+            
+            if (currentUser.roles === 'admin') {
+                // Redirect to admin page if admin
+                window.location.href = 'admin.html';
+                return;
+            }
+            
+            // Display user info
+            displayUserInfo();
+            
+            // Fetch admins
+            fetchAdmins();
+            
+            // Fetch messages for the current user
+            fetchMessages();
+            
+            // Add event listeners
+            document.getElementById('logout-btn').addEventListener('click', logout);
+            document.getElementById('send-btn').addEventListener('click', sendMessage);
+            document.getElementById('message-input').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+            
+            document.getElementById('admin-select').addEventListener('change', function() {
+                selectedAdminId = this.value;
+            });
+            
+            // Set up periodic refresh
+            setInterval(fetchMessages, 5000);
+        });
+        
+        function displayUserInfo() {
+            const userInfoElement = document.getElementById('user-info');
+            userInfoElement.innerHTML = `
+                <h2>Welcome, ${currentUser.first_name} ${currentUser.last_name}</h2>
+                <p>Email: ${currentUser.email}</p>
+            `;
+        }
+        
+        function fetchAdmins() {
+            fetch('http://localhost/final-jmab1/api/users', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Filter to get only admin users
+                    admins = data.users.filter(user => user.roles === 'admin');
+                    displayAdmins();
+                } else {
+                    console.error('Failed to fetch admins:', data.errors);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+        
+        function displayAdmins() {
+            const adminSelect = document.getElementById('admin-select');
+            
+            if (admins.length === 0) {
+                adminSelect.innerHTML = '<option value="">No admins available</option>';
+                return;
+            }
+            
+            let options = '<option value="">Select an admin</option>';
+            
+            admins.forEach(admin => {
+                options += `<option value="${admin.id}">${admin.first_name} ${admin.last_name}</option>`;
+            });
+            
+            adminSelect.innerHTML = options;
+            
+            // If there is only one admin, select it automatically
+            if (admins.length === 1) {
+                adminSelect.value = admins[0].id;
+                selectedAdminId = admins[0].id;
+            }
+        }
+        
+        function fetchMessages() {
+            fetch(`http://localhost/final-jmab1/api/messages/user/${currentUser.id}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayMessages(data.messages);
+                } else {
+                    console.error('Failed to fetch messages:', data.errors);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+        
+        function displayMessages(messages) {
+            const messagesContainer = document.getElementById('messages-container');
+            
+            if (!messages || messages.length === 0) {
+                messagesContainer.innerHTML = '<p>No messages yet. Start a conversation with support.</p>';
+                return;
+            }
+            
+            let messagesHtml = '';
+            
+            // Sort messages by timestamp
+            messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            
+            messages.forEach(message => {
+                const isSent = parseInt(message.sender_id) === currentUser.id;
+                const formattedDate = new Date(message.timestamp).toLocaleString();
+                
+                // Get admin name if it's a received message
+                let adminName = '';
+                if (!isSent) {
+                    const admin = admins.find(a => a.id == message.sender_id);
+                    adminName = admin ? `${admin.first_name} ${admin.last_name}` : `Admin ${message.sender_id}`;
+                }
+                
+                messagesHtml += `
+                    <div class="message ${isSent ? 'sent' : 'received'}">
+                        <div>${message.message}</div>
+                        <div class="message-info">
+                            ${isSent ? 'You' : adminName} | ${formattedDate}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            messagesContainer.innerHTML = messagesHtml;
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        function sendMessage() {
+            const messageInput = document.getElementById('message-input');
+            const message = messageInput.value.trim();
+            
+            if (!message) {
+                return;
+            }
+            
+            if (!selectedAdminId) {
+                alert('Please select an admin to message.');
+                return;
+            }
+            
+            const requestData = {
+                sender_id: currentUser.id,
+                receiver_id: selectedAdminId,
+                message: message
+            };
+            
+            fetch('http://localhost/final-jmab1/api/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(requestData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    messageInput.value = '';
+                    fetchMessages();
+                } else {
+                    console.error('Failed to send message:', data.errors);
+                    alert('Failed to send message: ' + data.errors.join(', '));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while sending the message.');
+            });
+        }
+        
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = 'sign-in.html';
+        }
+    </script>
+</body>
+</html>

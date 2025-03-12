@@ -1,11 +1,12 @@
 <?php
 require_once '../model/user.php';
+require_once '../config/JWTHandler.php';
 
 class UserController {
     private $userModel;
 
-    public function __construct(User $userModel) {
-        $this->userModel = $userModel;
+    public function __construct() {
+        $this->userModel = new User();
     }
 
     private function authenticateAPI() {
@@ -15,7 +16,7 @@ class UserController {
         }
 
         $token = str_replace('Bearer ', '', $headers['Authorization']);
-        $result = $this->userModel->validateJWT($token);
+        $result = JWTHandler::validateJWT($token);
         if (!$result['success']) {
             throw new Exception(implode(', ', $result['errors']), 401);
         }
@@ -23,20 +24,17 @@ class UserController {
     }
 
     public function register(array $data) {
-        $this->userModel->first_name = $data['first_name'] ?? '';
-        $this->userModel->last_name = $data['last_name'] ?? '';
-        $this->userModel->email = $data['email'] ?? '';
-        $this->userModel->password = $data['password'] ?? '';
+        $this->userModel->first_name = $data['first_name'] ?? null;
+        $this->userModel->last_name = $data['last_name'] ?? null;
+        $this->userModel->email = $data['email'] ?? null;
+        $this->userModel->password = $data['password'] ?? null;
         $this->userModel->roles = $data['roles'] ?? 'customer';
 
         $result = $this->userModel->register();
-        
         if ($result['success']) {
-            // If addresses are provided, add them after registration
             if (isset($data['addresses']) && is_array($data['addresses'])) {
                 $userId = $this->userModel->conn->lastInsertId();
                 $updateResult = $this->userModel->update($userId, ['addresses' => $data['addresses']]);
-                
                 if (!$updateResult['success']) {
                     return [
                         'status' => 201,
@@ -48,7 +46,6 @@ class UserController {
                     ];
                 }
             }
-            
             return [
                 'status' => 201,
                 'body' => ['success' => true, 'message' => $result['message']]
@@ -62,8 +59,8 @@ class UserController {
 
     public function login(array $data) {
         $result = $this->userModel->login($data['email'] ?? '', $data['password'] ?? '');
-        if ($result['success']) {
-            return [
+        return $result['success'] 
+            ? [
                 'status' => 200,
                 'body' => [
                     'success' => true,
@@ -71,12 +68,11 @@ class UserController {
                     'token' => $result['token'],
                     'user' => $result['user']
                 ]
+            ] 
+            : [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => $result['errors']]
             ];
-        }
-        return [
-            'status' => 400,
-            'body' => ['success' => false, 'errors' => $result['errors']]
-        ];
     }
 
     public function getAll() {
@@ -91,16 +87,9 @@ class UserController {
     public function getById($id) {
         $this->authenticateAPI();
         $userInfo = $this->userModel->getUserById($id);
-        if ($userInfo) {
-            return [
-                'status' => 200,
-                'body' => ['success' => true, 'user' => $userInfo]
-            ];
-        }
-        return [
-            'status' => 404,
-            'body' => ['success' => false, 'errors' => ['User not found.']]
-        ];
+        return $userInfo 
+            ? ['status' => 200, 'body' => ['success' => true, 'user' => $userInfo]] 
+            : ['status' => 404, 'body' => ['success' => false, 'errors' => ['User not found.']]];
     }
 
     public function update($id, array $data) {
@@ -111,22 +100,16 @@ class UserController {
                 'body' => ['success' => false, 'errors' => ['User ID is required.']]
             ];
         }
-        
+
         $result = $this->userModel->update($id, $data);
         if ($result['success']) {
             $response = [
                 'status' => 200,
-                'body' => [
-                    'success' => true,
-                    'message' => $result['message']
-                ]
+                'body' => ['success' => true, 'message' => $result['message']]
             ];
-            
-            // Include warnings if any address updates failed
             if (isset($result['warnings'])) {
                 $response['body']['warnings'] = $result['warnings'];
             }
-            
             return $response;
         }
         return [
@@ -143,7 +126,7 @@ class UserController {
                 'body' => ['success' => false, 'errors' => ['User ID is required.']]
             ];
         }
-        
+
         $userToDelete = $this->userModel->getUserById($id);
         if (!$userToDelete) {
             return [
@@ -151,59 +134,42 @@ class UserController {
                 'body' => ['success' => false, 'errors' => ['User not found.']]
             ];
         }
-        
         if ($userToDelete['roles'] === 'admin') {
             return [
                 'status' => 403,
                 'body' => ['success' => false, 'errors' => ['Admin users cannot be deleted.']]
             ];
         }
-        
+
         $result = $this->userModel->delete($id);
-        if ($result['success']) {
-            return [
-                'status' => 200,
-                'body' => ['success' => true, 'message' => $result['message']]
-            ];
-        }
-        return [
-            'status' => 400,
-            'body' => ['success' => false, 'errors' => $result['errors']]
-        ];
+        return $result['success'] 
+            ? ['status' => 200, 'body' => ['success' => true, 'message' => $result['message']]] 
+            : ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
     }
 
     public function deleteAddresses($userId, array $addressIds) {
         $this->authenticateAPI();
-        
         if (empty($userId)) {
             return [
                 'status' => 400,
                 'body' => ['success' => false, 'errors' => ['User ID is required.']]
             ];
         }
-    
+
         $result = $this->userModel->deleteAddresses($userId, $addressIds);
-        
         if ($result['success']) {
             $response = [
                 'status' => 200,
-                'body' => [
-                    'success' => true,
-                    'message' => $result['message']
-                ]
+                'body' => ['success' => true, 'message' => $result['message']]
             ];
-            
             if (isset($result['warnings'])) {
                 $response['body']['warnings'] = $result['warnings'];
             }
-            
             return $response;
         }
-        
-        return [
-            'status' => 400,
-            'body' => ['success' => false, 'errors' => $result['errors']]
-        ];
+        return strpos(implode('', $result['errors']), 'Database error') !== false 
+            ? ['status' => 500, 'body' => ['success' => false, 'errors' => ['Server error occurred.']]] 
+            : ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
     }
 }
 ?>

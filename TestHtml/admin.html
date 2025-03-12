@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+        header {
+            background-color: #4285f4;
+            color: white;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logout-btn {
+            background-color: transparent;
+            color: white;
+            border: 1px solid white;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        .user-info {
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .messaging-section {
+            display: flex;
+            gap: 1rem;
+            height: calc(100vh - 200px);
+        }
+        .users-list {
+            flex: 1;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+        }
+        .conversation {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .message-header {
+            padding: 1rem;
+            border-bottom: 1px solid #eee;
+            font-weight: bold;
+        }
+        .messages-container {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .message-input {
+            display: flex;
+            padding: 1rem;
+            border-top: 1px solid #eee;
+        }
+        .message-input input {
+            flex: 1;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .message-input button {
+            margin-left: 0.5rem;
+            padding: 0.5rem 1rem;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .user-item {
+            padding: 1rem;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+        .user-item:hover, .user-item.active {
+            background-color: #f0f7ff;
+        }
+        .message {
+            max-width: 70%;
+            padding: 0.75rem;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            word-wrap: break-word;
+        }
+        .sent {
+            align-self: flex-end;
+            background-color: #dcf8c6;
+        }
+        .received {
+            align-self: flex-start;
+            background-color: #f1f0f0;
+        }
+        .message-info {
+            font-size: 0.75rem;
+            color: #888;
+            margin-top: 0.25rem;
+        }
+        .no-user-selected {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Admin Dashboard</h1>
+        <button id="logout-btn" class="logout-btn">Logout</button>
+    </header>
+    
+    <div class="container">
+        <div class="user-info" id="user-info">
+            <!-- User info will be populated here -->
+        </div>
+        
+        <div class="messaging-section">
+            <div class="users-list" id="users-list">
+                <!-- Users will be listed here -->
+                <div class="user-item" data-id="all">All Messages</div>
+            </div>
+            
+            <div class="conversation">
+                <div class="message-header" id="conversation-header">
+                    Select a user to start messaging
+                </div>
+                
+                <div class="messages-container" id="messages-container">
+                    <div class="no-user-selected">
+                        <p>Select a user to view conversation</p>
+                    </div>
+                </div>
+                
+                <div class="message-input">
+                    <input type="text" id="message-input" placeholder="Type a message...">
+                    <button id="send-btn">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser;
+        let selectedUserId = null;
+        let allUsers = [];
+        let token;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if user is logged in and is admin
+            token = localStorage.getItem('token');
+            currentUser = JSON.parse(localStorage.getItem('user'));
+            
+            if (!token || !currentUser) {
+                // Redirect to login page if not logged in
+                window.location.href = 'sign-in.html';
+                return;
+            }
+            
+            if (currentUser.roles !== 'admin') {
+                // Redirect to customer page if not admin
+                window.location.href = 'customer.html';
+                return;
+            }
+            
+            // Display user info
+            displayUserInfo();
+            
+            // Fetch all users
+            fetchUsers();
+            
+            // Fetch all messages (admin can see all)
+            fetchAllMessages();
+            
+            // Add event listeners
+            document.getElementById('logout-btn').addEventListener('click', logout);
+            document.getElementById('send-btn').addEventListener('click', sendMessage);
+            document.getElementById('message-input').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+            
+            // Set up periodic refresh
+            setInterval(function() {
+                if (selectedUserId === 'all') {
+                    fetchAllMessages();
+                } else if (selectedUserId) {
+                    fetchMessages(selectedUserId);
+                }
+            }, 5000);
+        });
+        
+        function displayUserInfo() {
+            const userInfoElement = document.getElementById('user-info');
+            userInfoElement.innerHTML = `
+                <h2>Welcome, ${currentUser.first_name} ${currentUser.last_name}</h2>
+                <p>Email: ${currentUser.email}</p>
+                <p>Role: ${currentUser.roles}</p>
+            `;
+        }
+        
+        function fetchUsers() {
+            fetch('http://localhost/final-jmab1/api/users', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    allUsers = data.users;
+                    displayUsers(data.users);
+                } else {
+                    console.error('Failed to fetch users:', data.errors);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+        
+        function displayUsers(users) {
+            const usersListElement = document.getElementById('users-list');
+            // Keep the "All Messages" option
+            let usersHtml = '<div class="user-item active" data-id="all">All Messages</div>';
+            
+            users.forEach(user => {
+                if (user.id !== currentUser.id) {
+                    usersHtml += `
+                        <div class="user-item" data-id="${user.id}">
+                            ${user.first_name} ${user.last_name} (${user.roles})
+                        </div>
+                    `;
+                }
+            });
+            
+            usersListElement.innerHTML = usersHtml;
+            
+            // Add click event to user items
+            document.querySelectorAll('.user-item').forEach(item => {
+                item.addEventListener('click', function() {
+                    document.querySelectorAll('.user-item').forEach(i => i.classList.remove('active'));
+                    this.classList.add('active');
+                    
+                    selectedUserId = this.getAttribute('data-id');
+                    
+                    if (selectedUserId === 'all') {
+                        document.getElementById('conversation-header').textContent = 'All Messages';
+                        fetchAllMessages();
+                    } else {
+                        const user = allUsers.find(u => u.id == selectedUserId);
+                        if (user) {
+                            document.getElementById('conversation-header').textContent = `${user.first_name} ${user.last_name}`;
+                        }
+                        fetchMessages(selectedUserId);
+                    }
+                });
+            });
+        }
+        
+        function fetchAllMessages() {
+            fetch('http://localhost/final-jmab1/api/messages', {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayAllMessages(data.messages);
+                } else {
+                    console.error('Failed to fetch messages:', data.errors);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+        
+        function fetchMessages(userId) {
+            fetch(`http://localhost/final-jmab1/api/messages/user/${userId}`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayMessages(data.messages);
+                } else {
+                    console.error('Failed to fetch messages:', data.errors);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+        
+        function displayAllMessages(messages) {
+            const messagesContainer = document.getElementById('messages-container');
+            
+            if (!messages || messages.length === 0) {
+                messagesContainer.innerHTML = '<div class="no-user-selected"><p>No messages found</p></div>';
+                return;
+            }
+            
+            let messagesHtml = '';
+            
+            // Sort messages by timestamp
+            messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            
+            messages.forEach(message => {
+                const isSent = parseInt(message.sender_id) === currentUser.id;
+                const sender = allUsers.find(u => u.id == message.sender_id);
+                const receiver = allUsers.find(u => u.id == message.receiver_id);
+                
+                const senderName = sender ? `${sender.first_name} ${sender.last_name}` : `User ${message.sender_id}`;
+                const receiverName = receiver ? `${receiver.first_name} ${receiver.last_name}` : `User ${message.receiver_id}`;
+                
+                const formattedDate = new Date(message.timestamp).toLocaleString();
+                
+                messagesHtml += `
+                    <div class="message ${isSent ? 'sent' : 'received'}">
+                        <div>${message.message}</div>
+                        <div class="message-info">
+                            ${isSent ? 'You' : senderName} to ${isSent ? receiverName : 'You'} | ${formattedDate}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            messagesContainer.innerHTML = messagesHtml;
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        function displayMessages(messages) {
+            const messagesContainer = document.getElementById('messages-container');
+            
+            if (!messages || messages.length === 0) {
+                messagesContainer.innerHTML = '<div class="no-user-selected"><p>No messages found</p></div>';
+                return;
+            }
+            
+            let messagesHtml = '';
+            
+            // Sort messages by timestamp
+            messages.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            
+            messages.forEach(message => {
+                const isSent = parseInt(message.sender_id) === currentUser.id;
+                const formattedDate = new Date(message.timestamp).toLocaleString();
+                
+                messagesHtml += `
+                    <div class="message ${isSent ? 'sent' : 'received'}">
+                        <div>${message.message}</div>
+                        <div class="message-info">${formattedDate}</div>
+                    </div>
+                `;
+            });
+            
+            messagesContainer.innerHTML = messagesHtml;
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
+        function sendMessage() {
+            const messageInput = document.getElementById('message-input');
+            const message = messageInput.value.trim();
+            
+            if (!message || !selectedUserId || selectedUserId === 'all') {
+                return;
+            }
+            
+            const requestData = {
+                sender_id: currentUser.id,
+                receiver_id: selectedUserId,
+                message: message
+            };
+            
+            fetch('http://localhost/final-jmab1/api/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(requestData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    messageInput.value = '';
+                    fetchMessages(selectedUserId);
+                } else {
+                    console.error('Failed to send message:', data.errors);
+                    alert('Failed to send message: ' + data.errors.join(', '));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred while sending the message.');
+            });
+        }
+        
+        function logout() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            window.location.href = 'sign-in.html';
+        }
+    </script>
+</body>
+</html>

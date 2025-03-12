@@ -4,7 +4,7 @@
 
 namespace Composer\Autoload;
 
-class ComposerStaticInit1790d23ffa4368dbe981789e55809414
+class ComposerStaticInitde57cefce6ca968a8eb9040e3f8a940c
 {
     public static $files = array (
         'ad155f8f1cf0d418fe49e248db8c661b' => __DIR__ . '/..' . '/react/promise/src/functions_include.php',
@@ -16,6 +16,10 @@ class ComposerStaticInit1790d23ffa4368dbe981789e55809414
     );
 
     public static $prefixLengthsPsr4 = array (
+        'W' => 
+        array (
+            'WebSocket\\' => 10,
+        ),
         'S' => 
         array (
             'Symfony\\Polyfill\\Php83\\' => 23,
@@ -36,6 +40,7 @@ class ComposerStaticInit1790d23ffa4368dbe981789e55809414
         ),
         'P' => 
         array (
+            'Psr\\Log\\' => 8,
             'Psr\\Http\\Message\\' => 17,
             'Psr\\Http\\Client\\' => 16,
         ),
@@ -56,6 +61,10 @@ class ComposerStaticInit1790d23ffa4368dbe981789e55809414
     );
 
     public static $prefixDirsPsr4 = array (
+        'WebSocket\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/textalk/websocket/lib',
+        ),
         'Symfony\\Polyfill\\Php83\\' => 
         array (
             0 => __DIR__ . '/..' . '/symfony/polyfill-php83',
@@ -103,6 +112,10 @@ class ComposerStaticInit1790d23ffa4368dbe981789e55809414
         'Ratchet\\' => 
         array (
             0 => __DIR__ . '/..' . '/cboden/ratchet/src/Ratchet',
+        ),
+        'Psr\\Log\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/psr/log/src',
         ),
         'Psr\\Http\\Message\\' => 
         array (
@@ -153,9 +166,9 @@ class ComposerStaticInit1790d23ffa4368dbe981789e55809414
     public static function getInitializer(ClassLoader $loader)
     {
         return \Closure::bind(function () use ($loader) {
-            $loader->prefixLengthsPsr4 = ComposerStaticInit1790d23ffa4368dbe981789e55809414::$prefixLengthsPsr4;
-            $loader->prefixDirsPsr4 = ComposerStaticInit1790d23ffa4368dbe981789e55809414::$prefixDirsPsr4;
-            $loader->classMap = ComposerStaticInit1790d23ffa4368dbe981789e55809414::$classMap;
+            $loader->prefixLengthsPsr4 = ComposerStaticInitde57cefce6ca968a8eb9040e3f8a940c::$prefixLengthsPsr4;
+            $loader->prefixDirsPsr4 = ComposerStaticInitde57cefce6ca968a8eb9040e3f8a940c::$prefixDirsPsr4;
+            $loader->classMap = ComposerStaticInitde57cefce6ca968a8eb9040e3f8a940c::$classMap;
 
         }, null, ClassLoader::class);
     }
