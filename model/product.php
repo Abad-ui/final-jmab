@@ -5,7 +5,7 @@ class Product {
     private $conn;
     private $table = 'products';
 
-    public $product_id, $name, $description, $category, $subcategory, $price, $stock, $image_url, $brand, $size, $voltage, $tags;
+    public $product_id, $name, $description, $category, $subcategory, $price, $stock, $image_url, $brand, $size, $voltage;
 
     public function __construct() {
         $this->conn = (new Database())->connect();
@@ -62,8 +62,8 @@ class Product {
         $errors = $this->validateInput();
         if (!empty($errors)) return ['success' => false, 'errors' => $errors];
 
-        $query = 'INSERT INTO ' . $this->table . ' (name, description, category, subcategory, price, stock, image_url, brand, size, voltage, tags) 
-                  VALUES (:name, :description, :category, :subcategory, :price, :stock, :image_url, :brand, :size, :voltage, :tags)';
+        $query = 'INSERT INTO ' . $this->table . ' (name, description, category, subcategory, price, stock, image_url, brand, size, voltage) 
+                  VALUES (:name, :description, :category, :subcategory, :price, :stock, :image_url, :brand, :size, :voltage)';
         $stmt = $this->conn->prepare($query);
 
         $stmt->bindParam(':name', $this->name);
@@ -76,8 +76,6 @@ class Product {
         $stmt->bindParam(':brand', $this->brand);
         $stmt->bindParam(':size', $this->size);
         $stmt->bindParam(':voltage', $this->voltage);
-        $tagsJson = json_encode($this->tags);
-        $stmt->bindParam(':tags', $tagsJson);
 
         try {
             return $stmt->execute() 
@@ -108,10 +106,7 @@ class Product {
             }
         }
     
-        if (isset($data['tags']) && $data['tags'] !== '') {
-            $updates[] = 'tags = :tags';
-            $params[':tags'] = json_encode($data['tags']);
-        }
+        
     
         if (empty($updates)) {
             return ['success' => false, 'errors' => ['No valid fields to update.']];
@@ -172,12 +167,7 @@ class Product {
             $countQuery .= ' AND subcategory = :subcategory';
             $params[':subcategory'] = $filters['subcategory'];
         }
-        if (!empty($filters['tags'])) {
-            $query .= ' AND JSON_CONTAINS(tags, :tags)';
-            $countQuery .= ' AND JSON_CONTAINS(tags, :tags)';
-            $params[':tags'] = json_encode($filters['tags']);
-        }
-
+        
         // Get total count
         $countStmt = $this->conn->prepare($countQuery);
         foreach ($params as $key => $value) {

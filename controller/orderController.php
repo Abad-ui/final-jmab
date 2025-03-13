@@ -93,7 +93,7 @@ class OrderController {
             ];
         }
 
-        $webhookSecret = "whsk_p92Uk3ifKpffie9aFk7rs2cD";
+        $webhookSecret = "whsk_pUWtwH8cMfEzEzeFhPCXpKhh";
         if (!$this->orderModel->verifyWebhookSignature($requestBody, $signatureHeader, $webhookSecret)) {
             return [
                 'status' => 401,
@@ -122,7 +122,7 @@ class OrderController {
             }
 
             $new_status = strtolower($data['status'] ?? '');
-            $valid_statuses = ['out for delivery', 'delivered', 'failed delivery', 'cancelled'];
+            $valid_statuses = ['processing', 'out for delivery', 'delivered', 'failed delivery', 'cancelled'];
             
             if (empty($new_status) || !in_array($new_status, $valid_statuses)) {
                 return [

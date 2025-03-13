@@ -317,77 +317,145 @@ class Order {
             }
         }
         
-        // Update order with payment status and payment ID
-        $stmt = $this->conn->prepare("UPDATE {$this->orderTable} SET payment_status = :payment_status, paymongo_payment_id = :payment_id WHERE order_id = :order_id");
-        $stmt->execute([
-            ':payment_status' => $newPaymentStatus, 
-            ':payment_id' => $paymentId,
-            ':order_id' => $order['order_id']
-        ]);
-        
-        // If payment failed, revert the stock and cancel the order
+        // For failed payments, update both payment_status and status
         if ($newPaymentStatus === 'failed') {
-            $revertResult = $this->revertFailedOrder($order['order_id']);
-            if (!$revertResult['success']) {
-                file_put_contents('webhook_debug.log', "Failed to revert order {$order['order_id']}: " . $revertResult['message'] . "\n", FILE_APPEND);
-                return $revertResult;
+            // Begin a transaction for the update and stock reversion
+            $this->conn->beginTransaction();
+            try {
+                // Update order with payment status and payment ID, and set order status to cancelled
+                $stmt = $this->conn->prepare("UPDATE {$this->orderTable} SET payment_status = :payment_status, paymongo_payment_id = :payment_id, status = 'cancelled' WHERE order_id = :order_id");
+                $stmt->execute([
+                    ':payment_status' => $newPaymentStatus, 
+                    ':payment_id' => $paymentId,
+                    ':order_id' => $order['order_id']
+                ]);
+                
+                // Get all items in the order to revert stock
+                $query = "SELECT product_id, quantity 
+                          FROM {$this->orderItemTable} 
+                          WHERE order_id = ?";
+                $stmt = $this->conn->prepare($query);
+                $stmt->execute([$order['order_id']]);
+                $orderItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                
+                if (!empty($orderItems)) {
+                    // Return stock to products table
+                    foreach ($orderItems as $item) {
+                        $updateStockQuery = "UPDATE products 
+                                         SET stock = stock + ? 
+                                         WHERE product_id = ?";
+                        $stockStmt = $this->conn->prepare($updateStockQuery);
+                        $stockStmt->execute([$item['quantity'], $item['product_id']]);
+                    }
+                }
+                
+                $this->conn->commit();
+                
+                file_put_contents('webhook_debug.log', "Updated order ID: {$order['order_id']} to status: cancelled and payment_status: failed with Payment ID: $paymentId\n", FILE_APPEND);
+                return ['success' => true, 'message' => "Payment status updated to 'failed' and order cancelled with stock reverted"];
+            } catch (Exception $e) {
+                $this->conn->rollBack();
+                file_put_contents('webhook_debug.log', "Failed to update order {$order['order_id']}: " . $e->getMessage() . "\n", FILE_APPEND);
+                return ['success' => false, 'message' => "Failed to update order: " . $e->getMessage()];
             }
+        } else {
+            // For successful payments, just update the payment status and ID
+            $stmt = $this->conn->prepare("UPDATE {$this->orderTable} SET payment_status = :payment_status, paymongo_payment_id = :payment_id WHERE order_id = :order_id");
+            $stmt->execute([
+                ':payment_status' => $newPaymentStatus, 
+                ':payment_id' => $paymentId,
+                ':order_id' => $order['order_id']
+            ]);
+            
+            file_put_contents('webhook_debug.log', "Updated order ID: {$order['order_id']} to payment_status: $newPaymentStatus with Payment ID: $paymentId\n", FILE_APPEND);
+            return ['success' => true, 'message' => "Payment status updated to '$newPaymentStatus'"];
         }
-        
-        file_put_contents('webhook_debug.log', "Updated order ID: {$order['order_id']} to status: $newPaymentStatus with Payment ID: $paymentId\n", FILE_APPEND);
-        return ['success' => true, 'message' => "Payment status updated to '$newPaymentStatus'" . ($newPaymentStatus === 'failed' ? ' and order cancelled with stock reverted' : '')];
     }
 
     public function updateOrderStatus($order_id, $new_status) {
         try {
             $this->conn->beginTransaction();
-
+    
             // Get current status
-            $query = "SELECT status FROM {$this->orderTable} WHERE order_id = ?";
+            $query = "SELECT status, payment_method FROM {$this->orderTable} WHERE order_id = ?";
             $stmt = $this->conn->prepare($query);
             $stmt->execute([$order_id]);
             $current_order = $stmt->fetch(PDO::FETCH_ASSOC);
-
+    
             if (!$current_order) {
                 throw new Exception("Order with ID $order_id not found.");
             }
-
+    
             $current_status = $current_order['status'];
+            $payment_method = $current_order['payment_method'];
+            
             $allowed_transitions = [
-                'pending' => ['out for delivery', 'cancelled'],
+                'pending' => ['processing', 'out for delivery', 'cancelled'],
+                'processing' => ['out for delivery', 'cancelled'],
                 'out for delivery' => ['delivered', 'failed delivery'],
                 'failed delivery' => ['out for delivery', 'cancelled']
             ];
-
+    
             // Validate status transition
             if (!isset($allowed_transitions[$current_status]) || 
                 !in_array($new_status, $allowed_transitions[$current_status])) {
                 throw new Exception("Invalid status transition from '$current_status' to '$new_status'");
             }
-
+    
+            // Determine payment_status update based on new order status
+            $payment_status_update = "";
+            
+            if ($new_status === 'cancelled') {
+                $payment_status_update = ", payment_status = 'failed'";
+            } elseif ($new_status === 'delivered') {
+                // For COD orders, set to paid when delivered
+                if ($payment_method === 'cod') {
+                    $payment_status_update = ", payment_status = 'paid'";
+                }
+                // For other payment methods (like gcash), we don't change payment_status
+                // as it should already be set by the payment gateway
+            }
+    
             // If cancelling, revert stock
             if ($new_status === 'cancelled') {
-                $revertResult = $this->revertFailedOrder($order_id);
-                if (!$revertResult['success']) {
-                    throw new Exception($revertResult['message']);
+                // Get all items in the order
+                $query = "SELECT product_id, quantity 
+                        FROM {$this->orderItemTable} 
+                        WHERE order_id = ?";
+                $stmt = $this->conn->prepare($query);
+                $stmt->execute([$order_id]);
+                $orderItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                
+                if (empty($orderItems)) {
+                    throw new Exception("No items found for order $order_id.");
+                }
+                
+                // Return stock to products table
+                foreach ($orderItems as $item) {
+                    $updateStockQuery = "UPDATE products 
+                                        SET stock = stock + ? 
+                                        WHERE product_id = ?";
+                    $stockStmt = $this->conn->prepare($updateStockQuery);
+                    $stockStmt->execute([$item['quantity'], $item['product_id']]);
                 }
             }
-
-            // Update status
+    
+            // Update status and payment_status if needed
             $query = "UPDATE {$this->orderTable} 
-                     SET status = ?, 
-                         updated_at = NOW() 
-                     WHERE order_id = ?";
+                    SET status = ? 
+                    {$payment_status_update},
+                    updated_at = NOW() 
+                    WHERE order_id = ?";
             $stmt = $this->conn->prepare($query);
             $stmt->execute([$new_status, $order_id]);
-
+    
             $this->conn->commit();
             
             return [
                 'success' => true,
                 'message' => "Order $order_id status updated to '$new_status' successfully"
             ];
-
+    
         } catch (Exception $e) {
             $this->conn->rollBack();
             return [
