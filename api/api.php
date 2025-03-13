@@ -14,13 +14,13 @@ require_once '../model/cart.php';
 require_once '../model/product.php';
 require_once '../model/order.php';
 require_once '../model/message.php';
-require_once '../model/notification.php';  // Added notification model
+require_once '../model/notification.php';
 require_once '../controller/userController.php';
 require_once '../controller/cartController.php';
 require_once '../controller/productController.php';
 require_once '../controller/orderController.php';
 require_once '../controller/messageController.php';
-require_once '../controller/notificationController.php';  // Added notification controller
+require_once '../controller/notificationController.php';
 
 // Set CORS headers for actual API requests
 header('Content-Type: application/json');
@@ -65,6 +65,8 @@ if ($resource === 'messages' && $subResource === 'user' && isset($path[2])) {
     $resourceId = $path[2];
 } elseif ($resource === 'notifications' && $subResource === 'read' && isset($path[2])) {
     $resourceId = $path[2];  // For marking notification as read
+} elseif ($resource === 'orders' && $subResource === 'status' && isset($path[2])) {
+    $resourceId = $path[2];  // For updating order status
 } elseif (!in_array('page', $path) && !in_array('perPage', $path) && isset($path[1])) {
     $resourceId = $path[1];
 }
@@ -79,7 +81,7 @@ $controllers = [
     'orders' => new OrderController(new Order()),
     'webhook' => new OrderController(new Order()),
     'messages' => new MessageController(new Message()),
-    'notifications' => new NotificationController(new Notification()),  // Added notifications controller
+    'notifications' => new NotificationController(new Notification()),
 ];
 
 try {
@@ -117,7 +119,7 @@ try {
             } elseif ($resourceId === null && $subResource === null) {
                 $response = $resource === 'messages' || $resource === 'notifications'
                     ? $controller->getAll($page, $perPage)
-                    : $controller->getAll($page, $perPage); // Pass page and perPage to all getAll
+                    : $controller->getAll($page, $perPage);
             } elseif ($resourceId !== null) {
                 $response = $controller->getById($resourceId);
             } else {
@@ -129,6 +131,8 @@ try {
             $data = json_decode(file_get_contents('php://input'), true) ?? [];
             if ($resource === 'notifications' && $subResource === 'read' && $resourceId !== null) {
                 $response = $controller->markAsRead($resourceId);
+            } elseif ($resource === 'orders' && $subResource === 'status' && $resourceId !== null) {
+                $response = $controller->update($resourceId, $data);
             } elseif ($resourceId !== null) {
                 $response = $controller->update($resourceId, $data);
             } else {

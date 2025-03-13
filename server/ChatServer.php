@@ -6,9 +6,11 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 class ChatServer implements MessageComponentInterface {
     protected $clients;
+    protected $userConnections;
 
     public function __construct() {
         $this->clients = new \SplObjectStorage();
+        $this->userConnections = [];
     }
 
     public function onOpen(ConnectionInterface $conn) {
@@ -23,39 +25,37 @@ class ChatServer implements MessageComponentInterface {
             return;
         }
 
-        error_log("Received message: $msg");
-
-        // Set user ID for the connection
+        // Assign userId when received
         if (isset($data['userId'])) {
             $from->userId = $data['userId'];
-            error_log("User ID set for {$from->resourceId}: {$data['userId']}");
+            $this->userConnections[$data['userId']] = $from;
+            error_log("User ID {$data['userId']} connected as {$from->resourceId}");
             return;
         }
 
-        // Handle different types of messages
-        $targetUserId = null;
-        if (isset($data['receiver_id'])) {
-            // This is a message
+        // Handle chat messages
+        if (isset($data['sender_id']) && isset($data['receiver_id']) && isset($data['message'])) {
             $targetUserId = $data['receiver_id'];
-        } elseif (isset($data['user_id'])) {
-            // This is a notification
-            $targetUserId = $data['user_id'];
-        } else {
-            error_log("Missing receiver_id or user_id in message: $msg");
-            return;
-        }
 
-        // Broadcast to the specific target user
-        foreach ($this->clients as $client) {
-            if (isset($client->userId) && $client->userId == $targetUserId) {
-                $client->send(json_encode($data));
-                error_log("Sent to {$client->resourceId} (User ID: {$client->userId})");
+            // Send message to the receiver if online
+            if (isset($this->userConnections[$targetUserId])) {
+                $this->userConnections[$targetUserId]->send(json_encode($data));
+                error_log("Sent message to User ID: {$targetUserId}");
+            } else {
+                error_log("User ID {$targetUserId} is offline.");
             }
+
+            // Echo back to sender for confirmation
+            $from->send(json_encode($data));
         }
     }
 
     public function onClose(ConnectionInterface $conn) {
         $this->clients->detach($conn);
+        if (isset($conn->userId)) {
+            unset($this->userConnections[$conn->userId]);
+            error_log("User ID {$conn->userId} disconnected.");
+        }
         error_log("Connection closed! ({$conn->resourceId})");
     }
 

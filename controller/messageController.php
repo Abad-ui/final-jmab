@@ -50,7 +50,7 @@ class MessageController {
                 'status' => 'delivered',
                 'is_read' => $this->messageModel->is_read
             ];
-            $this->broadcastMessage($messageData);
+            //$this->broadcastMessage($messageData);
             return [
                 'status' => 201,
                 'body' => ['success' => true, 'message' => $result['message'], 'id' => $result['id']]

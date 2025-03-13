@@ -111,11 +111,46 @@ class OrderController {
     }
 
     public function update($id, array $data) {
-        $this->authenticateAPI();
-        return [
-            'status' => 501,
-            'body' => ['success' => false, 'errors' => ['Order update not implemented.']]
-        ];
+        try {
+            $this->authenticateAPI();
+            
+            if (empty($id) || !is_numeric($id)) {
+                return [
+                    'status' => 400,
+                    'body' => ['success' => false, 'errors' => ['Valid Order ID is required in the URL.']]
+                ];
+            }
+
+            $new_status = strtolower($data['status'] ?? '');
+            $valid_statuses = ['out for delivery', 'delivered', 'failed delivery', 'cancelled'];
+            
+            if (empty($new_status) || !in_array($new_status, $valid_statuses)) {
+                return [
+                    'status' => 400,
+                    'body' => ['success' => false, 'errors' => ['Valid status is required. Allowed values: ' . implode(', ', $valid_statuses)]]
+                ];
+            }
+
+            $result = $this->orderModel->updateOrderStatus($id, $new_status);
+            
+            if ($result['success']) {
+                return [
+                    'status' => 200,
+                    'body' => ['success' => true, 'message' => $result['message']]
+                ];
+            }
+            
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => [$result['message']]]
+            ];
+
+        } catch (Exception $e) {
+            return [
+                'status' => $e->getCode() ?: 500,
+                'body' => ['success' => false, 'errors' => [$e->getMessage()]]
+            ];
+        }
     }
 
     public function delete($id) {

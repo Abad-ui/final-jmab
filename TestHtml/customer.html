@@ -158,12 +158,9 @@
         let admins = [];
         let selectedAdminId = null;
         let token;
-        
-        // WebSocket setup
         let ws;
 
         document.addEventListener('DOMContentLoaded', function() {
-            // Check if user is logged in
             token = localStorage.getItem('token');
             currentUser = JSON.parse(localStorage.getItem('user'));
             
@@ -177,16 +174,10 @@
                 return;
             }
             
-            // Display user info
             displayUserInfo();
-            
-            // Fetch admins
             fetchAdmins();
-            
-            // Initial fetch of messages
             fetchMessages();
             
-            // Add event listeners
             document.getElementById('logout-btn').addEventListener('click', logout);
             document.getElementById('send-btn').addEventListener('click', sendMessage);
             document.getElementById('message-input').addEventListener('keypress', function(e) {
@@ -195,9 +186,9 @@
             
             document.getElementById('admin-select').addEventListener('change', function() {
                 selectedAdminId = this.value;
+                fetchMessages(); // Refresh messages when admin selection changes
             });
             
-            // Initialize WebSocket
             initWebSocket();
         });
         
@@ -213,10 +204,9 @@
                 const data = JSON.parse(event.data);
                 console.log('WebSocket message received:', data);
                 
-                // Check if it's a message relevant to this user
                 if (data.sender_id && data.receiver_id && 
                     (data.sender_id == currentUser.id || data.receiver_id == currentUser.id)) {
-                    fetchMessages(); // Refresh messages instantly
+                    appendMessage(data); // Append message if it’s sent or received by this user
                 }
             };
             
@@ -293,9 +283,14 @@
                 const isSent = parseInt(message.sender_id) === currentUser.id;
                 const formattedDate = new Date(message.timestamp).toLocaleString();
                 let adminName = '';
-                if (!isSent) {
+                if (!isSent && selectedAdminId && message.sender_id == selectedAdminId) {
                     const admin = admins.find(a => a.id == message.sender_id);
                     adminName = admin ? `${admin.first_name} ${admin.last_name}` : `Admin ${message.sender_id}`;
+                } else if (isSent && selectedAdminId && message.receiver_id == selectedAdminId) {
+                    const admin = admins.find(a => a.id == message.receiver_id);
+                    adminName = admin ? `${admin.first_name} ${admin.last_name}` : `Admin ${message.receiver_id}`;
+                } else {
+                    return; // Skip messages not related to selected admin
                 }
                 
                 messagesHtml += `
@@ -312,6 +307,32 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
         
+        function appendMessage(data) {
+            const messagesContainer = document.getElementById('messages-container');
+            const isSent = parseInt(data.sender_id) === currentUser.id;
+            const formattedDate = data.timestamp ? new Date(data.timestamp).toLocaleString() : new Date().toLocaleString();
+            
+            if ((!isSent && data.sender_id != selectedAdminId) || 
+                (isSent && data.receiver_id != selectedAdminId)) {
+                return; // Ignore messages not related to selected admin
+            }
+            
+            const admin = admins.find(a => a.id == (isSent ? data.receiver_id : data.sender_id));
+            const adminName = admin ? `${admin.first_name} ${admin.last_name}` : `Admin ${isSent ? data.receiver_id : data.sender_id}`;
+            
+            const messageHtml = `
+                <div class="message ${isSent ? 'sent' : 'received'}">
+                    <div>${data.message}</div>
+                    <div class="message-info">
+                        ${isSent ? 'You' : adminName} | ${formattedDate}
+                    </div>
+                </div>
+            `;
+            
+            messagesContainer.insertAdjacentHTML('beforeend', messageHtml);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
         function sendMessage() {
             const messageInput = document.getElementById('message-input');
             const message = messageInput.value.trim();
@@ -321,33 +342,43 @@
                 return;
             }
             
-            const requestData = {
+            const messageData = {
                 sender_id: currentUser.id,
                 receiver_id: selectedAdminId,
                 message: message
             };
             
+            // Send via WebSocket for real-time delivery
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(messageData));
+                // Remove optimistic append here; let ws.onmessage handle it
+            } else {
+                console.error('WebSocket is not connected');
+                alert('Cannot send message: WebSocket connection is not established.');
+                return;
+            }
+            
+            // Persist to database via HTTP POST
             fetch('http://localhost/final-jmab/api/messages', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify(requestData)
+                body: JSON.stringify(messageData)
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    messageInput.value = '';
-                    fetchMessages(); // Immediate refresh after sending
+                    messageInput.value = ''; // Clear input only after successful save
                 } else {
-                    console.error('Failed to send message:', data.errors);
-                    alert('Failed to send message: ' + data.errors.join(', '));
+                    console.error('Failed to save message:', data.errors);
+                    alert('Message sent in real-time but failed to save: ' + data.errors.join(', '));
                 }
             })
             .catch(error => {
-                console.error('Error:', error);
-                alert('An error occurred while sending the message.');
+                console.error('Error saving message:', error);
+                alert('Message sent in real-time but an error occurred while saving.');
             });
         }
         

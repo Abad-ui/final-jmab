@@ -173,12 +173,9 @@
         let selectedUserId = null;
         let allUsers = [];
         let token;
-
-        // WebSocket setup
         let ws;
 
         document.addEventListener('DOMContentLoaded', function() {
-            // Check if user is logged in and is admin
             token = localStorage.getItem('token');
             currentUser = JSON.parse(localStorage.getItem('user'));
             
@@ -192,23 +189,16 @@
                 return;
             }
             
-            // Display user info
             displayUserInfo();
-            
-            // Fetch all users
             fetchUsers();
-            
-            // Initial fetch of all messages
             fetchAllMessages();
             
-            // Add event listeners
             document.getElementById('logout-btn').addEventListener('click', logout);
             document.getElementById('send-btn').addEventListener('click', sendMessage);
             document.getElementById('message-input').addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') sendMessage();
             });
             
-            // Initialize WebSocket
             initWebSocket();
         });
         
@@ -224,14 +214,12 @@
                 const data = JSON.parse(event.data);
                 console.log('WebSocket message received:', data);
                 
-                // Check if it's a message
                 if (data.sender_id && data.receiver_id) {
                     if (selectedUserId === 'all') {
-                        fetchAllMessages(); // Refresh all messages for admin
+                        appendMessage(data, true); // Show all messages in "All Messages" view
                     } else if (data.sender_id == selectedUserId || data.receiver_id == selectedUserId) {
-                        fetchMessages(selectedUserId); // Refresh specific conversation
+                        appendMessage(data, false); // Show in specific user conversation
                     } else if (data.receiver_id == currentUser.id) {
-                        // New message from a user not currently selected
                         fetchUsers(); // Refresh user list to indicate new message
                     }
                 }
@@ -385,39 +373,82 @@
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
         
+        function appendMessage(data, isAllMessages) {
+            const messagesContainer = document.getElementById('messages-container');
+            const isSent = parseInt(data.sender_id) === currentUser.id;
+            const formattedDate = data.timestamp ? new Date(data.timestamp).toLocaleString() : new Date().toLocaleString();
+            
+            let messageHtml;
+            if (isAllMessages) {
+                const sender = allUsers.find(u => u.id == data.sender_id);
+                const receiver = allUsers.find(u => u.id == data.receiver_id);
+                const senderName = sender ? `${sender.first_name} ${sender.last_name}` : `User ${data.sender_id}`;
+                const receiverName = receiver ? `${receiver.first_name} ${receiver.last_name}` : `User ${data.receiver_id}`;
+                
+                messageHtml = `
+                    <div class="message ${isSent ? 'sent' : 'received'}">
+                        <div>${data.message}</div>
+                        <div class="message-info">
+                            ${isSent ? 'You' : senderName} to ${isSent ? receiverName : 'You'} | ${formattedDate}
+                        </div>
+                    </div>
+                `;
+            } else {
+                messageHtml = `
+                    <div class="message ${isSent ? 'sent' : 'received'}">
+                        <div>${data.message}</div>
+                        <div class="message-info">${formattedDate}</div>
+                    </div>
+                `;
+            }
+            
+            messagesContainer.insertAdjacentHTML('beforeend', messageHtml);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        
         function sendMessage() {
             const messageInput = document.getElementById('message-input');
             const message = messageInput.value.trim();
             
             if (!message || !selectedUserId || selectedUserId === 'all') return;
             
-            const requestData = {
+            const messageData = {
                 sender_id: currentUser.id,
                 receiver_id: selectedUserId,
                 message: message
             };
             
+            // Send via WebSocket for real-time delivery
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(messageData));
+                // Remove optimistic append here; let ws.onmessage handle it
+            } else {
+                console.error('WebSocket is not connected');
+                alert('Cannot send message: WebSocket connection is not established.');
+                return;
+            }
+            
+            // Persist to database via HTTP POST
             fetch('http://localhost/final-jmab/api/messages', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify(requestData)
+                body: JSON.stringify(messageData)
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    messageInput.value = '';
-                    fetchMessages(selectedUserId); // Immediate refresh after sending
+                    messageInput.value = ''; // Clear input only after successful save
                 } else {
-                    console.error('Failed to send message:', data.errors);
-                    alert('Failed to send message: ' + data.errors.join(', '));
+                    console.error('Failed to save message:', data.errors);
+                    alert('Message sent in real-time but failed to save: ' + data.errors.join(', '));
                 }
             })
             .catch(error => {
-                console.error('Error:', error);
-                alert('An error occurred while sending the message.');
+                console.error('Error saving message:', error);
+                alert('Message sent in real-time but an error occurred while saving.');
             });
         }
         

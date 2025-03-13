@@ -337,5 +337,65 @@ class Order {
         file_put_contents('webhook_debug.log', "Updated order ID: {$order['order_id']} to status: $newPaymentStatus with Payment ID: $paymentId\n", FILE_APPEND);
         return ['success' => true, 'message' => "Payment status updated to '$newPaymentStatus'" . ($newPaymentStatus === 'failed' ? ' and order cancelled with stock reverted' : '')];
     }
+
+    public function updateOrderStatus($order_id, $new_status) {
+        try {
+            $this->conn->beginTransaction();
+
+            // Get current status
+            $query = "SELECT status FROM {$this->orderTable} WHERE order_id = ?";
+            $stmt = $this->conn->prepare($query);
+            $stmt->execute([$order_id]);
+            $current_order = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$current_order) {
+                throw new Exception("Order with ID $order_id not found.");
+            }
+
+            $current_status = $current_order['status'];
+            $allowed_transitions = [
+                'pending' => ['out for delivery', 'cancelled'],
+                'out for delivery' => ['delivered', 'failed delivery'],
+                'failed delivery' => ['out for delivery', 'cancelled']
+            ];
+
+            // Validate status transition
+            if (!isset($allowed_transitions[$current_status]) || 
+                !in_array($new_status, $allowed_transitions[$current_status])) {
+                throw new Exception("Invalid status transition from '$current_status' to '$new_status'");
+            }
+
+            // If cancelling, revert stock
+            if ($new_status === 'cancelled') {
+                $revertResult = $this->revertFailedOrder($order_id);
+                if (!$revertResult['success']) {
+                    throw new Exception($revertResult['message']);
+                }
+            }
+
+            // Update status
+            $query = "UPDATE {$this->orderTable} 
+                     SET status = ?, 
+                         updated_at = NOW() 
+                     WHERE order_id = ?";
+            $stmt = $this->conn->prepare($query);
+            $stmt->execute([$new_status, $order_id]);
+
+            $this->conn->commit();
+            
+            return [
+                'success' => true,
+                'message' => "Order $order_id status updated to '$new_status' successfully"
+            ];
+
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return [
+                'success' => false,
+                'message' => "Failed to update order status: " . $e->getMessage()
+            ];
+        }
+    }
+    
 }
 ?>
