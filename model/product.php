@@ -129,16 +129,44 @@ class Product {
     }
 
     public function deleteProduct($product_id) {
-        $stmt = $this->conn->prepare('DELETE FROM ' . $this->table . ' WHERE product_id = :product_id');
-        $stmt->bindParam(':product_id', $product_id, PDO::PARAM_INT);
-
+        // Check for ongoing orders related to this product
+        $checkStmt = $this->conn->prepare(
+            'SELECT COUNT(*) 
+             FROM order_items oi
+             INNER JOIN orders o ON oi.order_id = o.order_id
+             WHERE oi.product_id = :product_id 
+             AND o.status IN ("pending", "processing", "out for delivery", "failed delivery")'
+        );
+        $checkStmt->bindParam(':product_id', $product_id, PDO::PARAM_INT);
+        
         try {
-            return $stmt->execute() 
-                ? ['success' => true, 'message' => 'Product deleted successfully.'] 
-                : ['success' => false, 'errors' => ['Unknown error occurred.']];
+            $checkStmt->execute();
+            $transactionCount = $checkStmt->fetchColumn();
+            
+            if ($transactionCount > 0) {
+                return [
+                    'success' => false,
+                    'errors' => ['Cannot delete product with ongoing orders.']
+                ];
+            }
+            
+            // If no ongoing orders, proceed with deletion
+            $stmt = $this->conn->prepare(
+                'DELETE FROM ' . $this->table . ' 
+                 WHERE product_id = :product_id'
+            );
+            $stmt->bindParam(':product_id', $product_id, PDO::PARAM_INT);
+    
+            return $stmt->execute()
+                ? ['success' => true, 'message' => 'Product deleted successfully.']
+                : ['success' => false, 'message' => ['Unknown error occurred.']];
+                
         } catch (PDOException $e) {
             error_log('Database Error: ' . $e->getMessage());
-            return ['success' => false, 'errors' => ['Something went wrong. Please try again.']];
+            return [
+                'success' => false,
+                'errors' => ['Something went wrong. Please try again.']
+            ];
         }
     }
 

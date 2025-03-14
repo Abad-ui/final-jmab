@@ -93,7 +93,7 @@ class OrderController {
             ];
         }
 
-        $webhookSecret = "whsk_pUWtwH8cMfEzEzeFhPCXpKhh";
+        $webhookSecret = "whsk_uRPewJKKaGwWNdecu5aAMJKo";
         if (!$this->orderModel->verifyWebhookSignature($requestBody, $signatureHeader, $webhookSecret)) {
             return [
                 'status' => 401,

@@ -69,7 +69,7 @@ class ProductController {
         $this->productModel->brand = $data['brand'] ?? '';
         $this->productModel->size = $data['size'] ?? null;
         $this->productModel->voltage = $data['voltage'] ?? null;
-        $this->productModel->tags = $data['tags'] ?? [];
+        
 
         $result = $this->productModel->createProduct();
         return [
@@ -114,10 +114,17 @@ class ProductController {
                 'body' => ['success' => false, 'errors' => ['Product ID is required.']]
             ];
         }
-
+    
         $result = $this->productModel->deleteProduct($id);
+        
+        // You could optionally customize the status code based on the error type
+        $status = $result['success'] ? 200 : 400;
+        if (isset($result['errors']) && in_array('Cannot delete product with ongoing orders.', $result['errors'])) {
+            $status = 409; // Conflict status code could be more appropriate here
+        }
+    
         return [
-            'status' => $result['success'] ? 200 : 400,
+            'status' => $status,
             'body' => $result
         ];
     }
@@ -127,8 +134,7 @@ class ProductController {
             'brand' => $filters['brand'] ?? null,
             'category' => $filters['category'] ?? null,
             'subcategory' => $filters['subcategory'] ?? null,
-            'name' => $filters['name'] ?? null,
-            'tags' => isset($filters['tags']) ? (is_array($filters['tags']) ? $filters['tags'] : explode(',', $filters['tags'])) : null
+            'name' => $filters['name'] ?? null
         ];
 
         $result = $this->productModel->searchProducts($filters, $page, $perPage);

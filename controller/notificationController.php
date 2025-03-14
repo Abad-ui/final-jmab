@@ -164,7 +164,7 @@ class NotificationController {
 
     private function broadcastNotification($notificationData) {
         try {
-            $client = new \WebSocket\Client("ws://localhost:8080");
+            $client = new \WebSocket\Client("ws://localhost:8081"); // Update port
             $client->text(json_encode($notificationData));
             $client->close();
             error_log("Notification broadcasted: " . json_encode($notificationData));
