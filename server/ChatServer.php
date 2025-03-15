@@ -10,7 +10,7 @@ class ChatServer implements MessageComponentInterface {
 
     public function __construct() {
         $this->clients = new \SplObjectStorage();
-        $this->userConnections = [];
+        $this->userConnections = []; // Array to hold multiple connections per user
     }
 
     public function onOpen(ConnectionInterface $conn) {
@@ -24,37 +24,54 @@ class ChatServer implements MessageComponentInterface {
             error_log("Invalid JSON received from {$from->resourceId}: $msg");
             return;
         }
-
-        // Assign userId when received
+    
+        // Assign userId and store connection
         if (isset($data['userId'])) {
-            $from->userId = $data['userId'];
-            $this->userConnections[$data['userId']] = $from;
-            error_log("User ID {$data['userId']} connected as {$from->resourceId}");
+            $userId = $data['userId'];
+            $from->userId = $userId;
+            if (!isset($this->userConnections[$userId])) {
+                $this->userConnections[$userId] = new \SplObjectStorage();
+            }
+            $this->userConnections[$userId]->attach($from);
+            error_log("User ID {$userId} connected as {$from->resourceId}. Total connections for user: " . $this->userConnections[$userId]->count());
             return;
         }
-
+    
         // Handle chat messages
         if (isset($data['sender_id']) && isset($data['receiver_id']) && isset($data['message'])) {
             $targetUserId = $data['receiver_id'];
-
-            // Send message to the receiver if online
             if (isset($this->userConnections[$targetUserId])) {
-                $this->userConnections[$targetUserId]->send(json_encode($data));
-                error_log("Sent message to User ID: {$targetUserId}");
+                foreach ($this->userConnections[$targetUserId] as $targetConn) {
+                    $targetConn->send(json_encode($data));
+                    error_log("Sent message to User ID: {$targetUserId} on connection {$targetConn->resourceId}");
+                }
             } else {
                 error_log("User ID {$targetUserId} is offline.");
             }
-
-            // Echo back to sender for confirmation
-            $from->send(json_encode($data));
+    
+            // Echo back to sender for confirmation (to all sender's connections)
+            if (isset($this->userConnections[$data['sender_id']])) {
+                foreach ($this->userConnections[$data['sender_id']] as $senderConn) {
+                    $senderConn->send(json_encode($data));
+                }
+            }
         }
     }
 
     public function onClose(ConnectionInterface $conn) {
         $this->clients->detach($conn);
         if (isset($conn->userId)) {
-            unset($this->userConnections[$conn->userId]);
-            error_log("User ID {$conn->userId} disconnected.");
+            $userId = $conn->userId;
+            if (isset($this->userConnections[$userId])) {
+                $this->userConnections[$userId]->detach($conn);
+                error_log("User ID {$userId} disconnected from {$conn->resourceId}. Remaining connections: " . $this->userConnections[$userId]->count());
+
+                // Clean up if no connections remain
+                if ($this->userConnections[$userId]->count() === 0) {
+                    unset($this->userConnections[$userId]);
+                    error_log("All connections for User ID {$userId} closed.");
+                }
+            }
         }
         error_log("Connection closed! ({$conn->resourceId})");
     }

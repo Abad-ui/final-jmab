@@ -10,7 +10,7 @@ class NotificationServer implements MessageComponentInterface {
 
     public function __construct() {
         $this->clients = new \SplObjectStorage();
-        $this->userConnections = [];
+        $this->userConnections = []; // Array to hold multiple connections per user
     }
 
     public function onOpen(ConnectionInterface $conn) {
@@ -25,20 +25,32 @@ class NotificationServer implements MessageComponentInterface {
             return;
         }
 
-        // Register user ID
+        // Register user ID and store connection
         if (isset($data['userId'])) {
-            $from->userId = $data['userId'];
-            $this->userConnections[$data['userId']] = $from;
-            error_log("User ID {$data['userId']} connected to notification server as {$from->resourceId}");
+            $userId = $data['userId'];
+            $from->userId = $userId;
+
+            // Initialize array for userId if it doesn't exist
+            if (!isset($this->userConnections[$userId])) {
+                $this->userConnections[$userId] = new \SplObjectStorage();
+            }
+
+            // Add the connection to the user's connection pool
+            $this->userConnections[$userId]->attach($from);
+            error_log("User ID {$userId} connected to notification server as {$from->resourceId}. Total connections for user: " . $this->userConnections[$userId]->count());
             return;
         }
 
         // Handle notification broadcast
         if (isset($data['user_id']) && isset($data['message'])) {
             $targetUserId = $data['user_id'];
+
+            // Send notification to all connections of the target user if online
             if (isset($this->userConnections[$targetUserId])) {
-                $this->userConnections[$targetUserId]->send(json_encode($data));
-                error_log("Sent notification to User ID: {$targetUserId}");
+                foreach ($this->userConnections[$targetUserId] as $targetConn) {
+                    $targetConn->send(json_encode($data));
+                    error_log("Sent notification to User ID: {$targetUserId} on connection {$targetConn->resourceId}");
+                }
             } else {
                 error_log("User ID {$targetUserId} is offline for notifications.");
             }
@@ -50,8 +62,17 @@ class NotificationServer implements MessageComponentInterface {
     public function onClose(ConnectionInterface $conn) {
         $this->clients->detach($conn);
         if (isset($conn->userId)) {
-            unset($this->userConnections[$conn->userId]);
-            error_log("User ID {$conn->userId} disconnected from notifications.");
+            $userId = $conn->userId;
+            if (isset($this->userConnections[$userId])) {
+                $this->userConnections[$userId]->detach($conn);
+                error_log("User ID {$userId} disconnected from notifications on {$conn->resourceId}. Remaining connections: " . $this->userConnections[$userId]->count());
+
+                // Clean up if no connections remain
+                if ($this->userConnections[$userId]->count() === 0) {
+                    unset($this->userConnections[$userId]);
+                    error_log("All notification connections for User ID {$userId} closed.");
+                }
+            }
         }
         error_log("Notification connection closed! ({$conn->resourceId})");
     }

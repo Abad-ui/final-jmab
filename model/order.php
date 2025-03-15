@@ -18,10 +18,13 @@ class Order {
 
     public function getAllOrders() {
         $query = 'SELECT o.*, u.first_name, u.last_name, 
+                         SUM(oi.quantity) AS total_quantity, 
+                         COUNT(DISTINCT o.user_id) AS total_customers, 
                          GROUP_CONCAT(DISTINCT CONCAT(oi.product_name, " (x", oi.quantity, ")") ORDER BY oi.product_name ASC SEPARATOR ", ") AS product_details
                   FROM ' . $this->orderTable . ' o
                   LEFT JOIN users u ON o.user_id = u.id
                   LEFT JOIN order_items oi ON o.order_id = oi.order_id
+                  LEFT JOIN products p ON oi.product_id = p.product_id
                   GROUP BY o.order_id';
     
         $stmt = $this->conn->prepare($query);

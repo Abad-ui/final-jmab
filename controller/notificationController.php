@@ -157,17 +157,37 @@ class NotificationController {
         }
 
         $result = $this->notificationModel->markAsRead($id);
-        return $result['success'] 
-            ? ['status' => 200, 'body' => ['success' => true, 'message' => $result['message']]] 
-            : ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
+        if ($result['success']) {
+            // Optionally broadcast the updated status
+            $notificationData = [
+                'id' => $id,
+                'user_id' => $notification['notification']['user_id'],
+                'title' => $notification['notification']['title'],
+                'message' => $notification['notification']['message'],
+                'is_read' => 1,
+                'created_at' => $notification['notification']['created_at']
+            ];
+            $this->broadcastNotification($notificationData);
+            return ['status' => 200, 'body' => ['success' => true, 'message' => $result['message']]];
+        }
+        return ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
     }
 
     private function broadcastNotification($notificationData) {
         try {
-            $client = new \WebSocket\Client("ws://localhost:8081"); // Update port
-            $client->text(json_encode($notificationData));
+            $client = new \WebSocket\Client("ws://localhost:8081");
+            // Ensure the payload matches what the server expects
+            $payload = [
+                'user_id' => $notificationData['user_id'],
+                'message' => $notificationData['message'],
+                'title' => $notificationData['title'] ?? '',
+                'id' => $notificationData['id'] ?? null,
+                'is_read' => $notificationData['is_read'] ?? 0,
+                'created_at' => $notificationData['created_at'] ?? null
+            ];
+            $client->text(json_encode($payload));
             $client->close();
-            error_log("Notification broadcasted: " . json_encode($notificationData));
+            error_log("Notification broadcasted: " . json_encode($payload));
         } catch (\WebSocket\Exception $e) {
             error_log('WebSocket Error: ' . $e->getMessage());
         } catch (\Exception $e) {
@@ -196,9 +216,21 @@ class NotificationController {
         }
 
         $result = $this->notificationModel->update($id, $data);
-        return $result['success'] 
-            ? ['status' => 200, 'body' => ['success' => true, 'message' => $result['message']]] 
-            : ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
+        if ($result['success']) {
+            // Optionally broadcast the updated notification
+            $updatedNotification = $this->notificationModel->getNotificationById($id)['notification'];
+            $notificationData = [
+                'id' => $id,
+                'user_id' => $updatedNotification['user_id'],
+                'title' => $updatedNotification['title'],
+                'message' => $updatedNotification['message'],
+                'is_read' => $updatedNotification['is_read'],
+                'created_at' => $updatedNotification['created_at']
+            ];
+            $this->broadcastNotification($notificationData);
+            return ['status' => 200, 'body' => ['success' => true, 'message' => $result['message']]];
+        }
+        return ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
     }
 
     public function delete($id) {
