@@ -175,8 +175,7 @@ class NotificationController {
 
     private function broadcastNotification($notificationData) {
         try {
-            $client = new \WebSocket\Client("ws://localhost:8081");
-            // Ensure the payload matches what the server expects
+            $client = new \WebSocket\Client("ws://localhost:8080");
             $payload = [
                 'user_id' => $notificationData['user_id'],
                 'message' => $notificationData['message'],
