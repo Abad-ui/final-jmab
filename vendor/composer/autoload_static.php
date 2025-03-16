@@ -43,6 +43,8 @@ class ComposerStaticInitde57cefce6ca968a8eb9040e3f8a940c
             'Psr\\Log\\' => 8,
             'Psr\\Http\\Message\\' => 17,
             'Psr\\Http\\Client\\' => 16,
+            'Phrity\\Util\\' => 12,
+            'Phrity\\Net\\' => 11,
         ),
         'G' => 
         array (
@@ -125,6 +127,14 @@ class ComposerStaticInitde57cefce6ca968a8eb9040e3f8a940c
         'Psr\\Http\\Client\\' => 
         array (
             0 => __DIR__ . '/..' . '/psr/http-client/src',
+        ),
+        'Phrity\\Util\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/phrity/util-errorhandler/src',
+        ),
+        'Phrity\\Net\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/phrity/net-uri/src',
         ),
         'GuzzleHttp\\Psr7\\' => 
         array (

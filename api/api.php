@@ -1,7 +1,7 @@
 <?php
 // Handle OPTIONS request (preflight request)
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    header('Access-Control-Allow-Origin: *');  // Adjust the origin if needed
+    header('Access-Control-Allow-Origin: *'); // Adjust to specific origin in production, e.g., 'https://yourfrontend.com'
     header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
     header('Access-Control-Allow-Headers: Content-Type, Authorization');
     header('HTTP/1.1 200 OK');
@@ -15,16 +15,20 @@ require_once '../model/product.php';
 require_once '../model/order.php';
 require_once '../model/message.php';
 require_once '../model/notification.php';
+require_once '../model/receipt.php'; // Explicitly included for clarity
+require_once '../model/rating.php'; // Add the Rating model
 require_once '../controller/userController.php';
 require_once '../controller/cartController.php';
 require_once '../controller/productController.php';
 require_once '../controller/orderController.php';
 require_once '../controller/messageController.php';
 require_once '../controller/notificationController.php';
+require_once '../controller/receiptController.php';
+require_once '../controller/ratingController.php'; // Add the Rating controller
 
 // Set CORS headers for actual API requests
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');  // You can replace '*' with a specific origin URL if needed
+header('Access-Control-Allow-Origin: *'); // Consider replacing '*' with specific origins in production
 
 $method = $_SERVER['REQUEST_METHOD'];
 $endpoint = isset($_GET['endpoint']) 
@@ -38,20 +42,20 @@ $resource = $path[0] ?? '';
 $subResource = $path[1] ?? null;
 $resourceId = null;
 $page = max(1, (int)($_GET['page'] ?? 1)); // Default from query params
-$perPage = max(1, min(100, (int)($_GET['perPage'] ?? 20))); // Default from query params, max 100
+$perPage = max(1, min(100, (int)($_GET['perPage'] ?? 20))); // Default from query Ascendancy, max 100
 
-// Parse pagination from path if present
+// Parse pagination from path if explicitly present (e.g., /products/page/2/perPage/10)
 if (in_array('page', $path) && in_array('perPage', $path)) {
     $pageIndex = array_search('page', $path);
     $perPageIndex = array_search('perPage', $path);
     if ($pageIndex !== false && $perPageIndex !== false && isset($path[$pageIndex + 1]) && isset($path[$perPageIndex + 1])) {
-        $page = max(1, (int)$path[$pageIndex + 1]); // Override with path value
-        $perPage = max(1, min(100, (int)$path[$perPageIndex + 1])); // Override with path value
+        $page = max(1, (int)$path[$pageIndex + 1]);
+        $perPage = max(1, min(100, (int)$path[$perPageIndex + 1]));
     }
 } elseif (in_array('page', $path)) {
     $pageIndex = array_search('page', $path);
     if ($pageIndex !== false && isset($path[$pageIndex + 1])) {
-        $page = max(1, (int)$path[$pageIndex + 1]); // Override with path value
+        $page = max(1, (int)$path[$pageIndex + 1]);
     }
 }
 
@@ -64,9 +68,15 @@ if ($resource === 'messages' && $subResource === 'user' && isset($path[2])) {
 } elseif ($resource === 'notifications' && $subResource === 'user' && isset($path[2])) {
     $resourceId = $path[2];
 } elseif ($resource === 'notifications' && $subResource === 'read' && isset($path[2])) {
-    $resourceId = $path[2];  // For marking notification as read
+    $resourceId = $path[2];
 } elseif ($resource === 'orders' && $subResource === 'status' && isset($path[2])) {
-    $resourceId = $path[2];  // For updating order status
+    $resourceId = $path[2];
+} elseif ($resource === 'receipts' && $subResource === 'order' && isset($path[2])) {
+    $resourceId = $path[2]; // e.g., /receipts/order/123
+} elseif ($resource === 'ratings' && $subResource === 'product' && isset($path[2])) {
+    $resourceId = $path[2]; // e.g., /ratings/product/123
+} elseif ($resource === 'ratings' && $subResource === 'average' && isset($path[2])) {
+    $resourceId = $path[2]; // e.g., /ratings/average/123
 } elseif (!in_array('page', $path) && !in_array('perPage', $path) && isset($path[1])) {
     $resourceId = $path[1];
 }
@@ -79,9 +89,11 @@ $controllers = [
     'carts' => new CartController(new Cart()),
     'products' => new ProductController(new Product()),
     'orders' => new OrderController(new Order()),
+    'receipts' => new ReceiptController(new Receipt()),
     'webhook' => new OrderController(new Order()),
     'messages' => new MessageController(new Message()),
     'notifications' => new NotificationController(new Notification()),
+    'ratings' => new RatingController(), // Add the Rating controller instance
 ];
 
 try {
@@ -90,10 +102,16 @@ try {
     }
 
     $controller = $controllers[$resource];
+    $inputData = json_decode(file_get_contents('php://input'), true);
+    if ($method === 'POST' || $method === 'PUT') {
+        if (!is_array($inputData)) {
+            throw new Exception('Invalid JSON data in request body.', 400);
+        }
+    }
 
     switch ($method) {
         case 'POST':
-            $data = json_decode(file_get_contents('php://input'), true) ?? [];
+            $data = $inputData ?? [];
             if ($resource === 'users' && $subResource === 'register') $response = $controller->register($data);
             elseif ($resource === 'users' && $subResource === 'login') $response = $controller->login($data);
             elseif ($resource === 'orders' && $resourceId !== null) $response = $controller->create($resourceId, $data);
@@ -102,6 +120,8 @@ try {
             elseif ($resource === 'webhook' && $subResource === 'paymongo') $response = $controller->handleWebhook();
             elseif ($resource === 'messages' && $resourceId === null) $response = $controller->create($data);
             elseif ($resource === 'notifications' && $resourceId === null) $response = $controller->create($data);
+            elseif ($resource === 'receipts' && $resourceId === null) $response = $controller->create($data);
+            elseif ($resource === 'ratings' && $resourceId === null) $response = $controller->create($data);
             else throw new Exception('Invalid endpoint.', 404);
             break;
 
@@ -116,10 +136,14 @@ try {
                 $response = $controller->getConversation($userId, $otherUserId, $page, $perPage);
             } elseif ($resource === 'notifications' && $subResource === 'user' && $resourceId !== null) {
                 $response = $controller->getUserNotifications($resourceId, $page, $perPage);
+            } elseif ($resource === 'receipts' && $subResource === 'order' && $resourceId !== null) {
+                $response = $controller->getById($resourceId); // Could be enhanced with a specific getByOrderId method
+            } elseif ($resource === 'ratings' && $subResource === 'product' && $resourceId !== null) {
+                $response = $controller->getByProductId($resourceId, $page, $perPage);
+            } elseif ($resource === 'ratings' && $subResource === 'average' && $resourceId !== null) {
+                $response = $controller->getAverageRating($resourceId);
             } elseif ($resourceId === null && $subResource === null) {
-                $response = $resource === 'messages' || $resource === 'notifications'
-                    ? $controller->getAll($page, $perPage)
-                    : $controller->getAll($page, $perPage);
+                $response = $controller->getAll($page, $perPage);
             } elseif ($resourceId !== null) {
                 $response = $controller->getById($resourceId);
             } else {
@@ -128,10 +152,14 @@ try {
             break;
 
         case 'PUT':
-            $data = json_decode(file_get_contents('php://input'), true) ?? [];
+            $data = $inputData ?? [];
             if ($resource === 'notifications' && $subResource === 'read' && $resourceId !== null) {
                 $response = $controller->markAsRead($resourceId);
             } elseif ($resource === 'orders' && $subResource === 'status' && $resourceId !== null) {
+                $response = $controller->update($resourceId, $data);
+            } elseif ($resource === 'receipts' && $resourceId !== null) {
+                $response = $controller->update($resourceId, $data);
+            } elseif ($resource === 'ratings' && $resourceId !== null) {
                 $response = $controller->update($resourceId, $data);
             } elseif ($resourceId !== null) {
                 $response = $controller->update($resourceId, $data);
@@ -142,12 +170,16 @@ try {
 
         case 'DELETE':
             if ($resource === 'users' && isset($path[2]) && $path[2] === 'addresses') {
-                $data = json_decode(file_get_contents('php://input'), true) ?? [];
+                $data = $inputData ?? [];
                 $addressIds = $data['address_ids'] ?? [];
                 if (empty($addressIds) || !is_array($addressIds)) {
                     throw new Exception('Array of address IDs is required in the request body.', 400);
                 }
                 $response = $controller->deleteAddresses($resourceId, $addressIds);
+            } elseif ($resource === 'receipts' && $resourceId !== null) {
+                $response = $controller->delete($resourceId);
+            } elseif ($resource === 'ratings' && $resourceId !== null) {
+                $response = $controller->delete($resourceId);
             } elseif ($resourceId !== null) {
                 $response = $controller->delete($resourceId);
             } else {
@@ -164,6 +196,7 @@ try {
 } catch (Exception $e) {
     $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 100 && $e->getCode() <= 599 ? (int)$e->getCode() : 500;
     http_response_code($statusCode);
+    error_log("Error [$statusCode]: " . $e->getMessage() . " | Request: $method $endpoint | Body: " . file_get_contents('php://input'));
     echo json_encode(['success' => false, 'errors' => [$e->getMessage()]]);
 }
 ?>
