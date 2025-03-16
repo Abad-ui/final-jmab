@@ -29,6 +29,8 @@ class MessageController {
         $this->messageModel->sender_id = $data['sender_id'] ?? '';
         $this->messageModel->receiver_id = $data['receiver_id'] ?? '';
         $this->messageModel->message = $data['message'] ?? '';
+        $this->messageModel->product_id = isset($data['product_id']) && !empty($data['product_id']) 
+        ? $data['product_id'] : null;
         $this->messageModel->status = $data['status'] ?? 'sent'; // Note: Model overrides to 'delivered'
         $this->messageModel->is_read = $data['is_read'] ?? 0;
 
@@ -50,6 +52,11 @@ class MessageController {
                 'status' => 'delivered',
                 'is_read' => $this->messageModel->is_read
             ];
+
+            if ($this->messageModel->product_id) {
+                $messageData['product_id'] = $this->messageModel->product_id;
+            }
+            
             $this->broadcastMessage($messageData);
             return [
                 'status' => 201,

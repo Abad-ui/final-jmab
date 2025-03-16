@@ -8,7 +8,8 @@ class Message {
     private $table = 'messages';
 
     public $id, $sender_id, $receiver_id, $message, $timestamp, $status, $is_read;
-
+    public $product_id = null;
+    
     public function __construct() {
         $this->conn = (new Database())->connect();
     }
@@ -37,8 +38,8 @@ class Message {
             return ['success' => false, 'errors' => ['Sender or Receiver does not exist.']];
         }
 
-        $query = 'INSERT INTO ' . $this->table . ' (sender_id, receiver_id, message, timestamp, status, is_read) 
-                  VALUES (:sender_id, :receiver_id, :message, NOW(), :status, :is_read)';
+        $query = 'INSERT INTO ' . $this->table . ' (sender_id, receiver_id, message, product_id, timestamp, status, is_read) 
+          VALUES (:sender_id, :receiver_id, :message, :product_id, NOW(), :status, :is_read)';
         $stmt = $this->conn->prepare($query);
         $this->status = 'delivered'; // Auto-set to 'delivered' upon server receipt
         $this->is_read = 0;
@@ -46,6 +47,11 @@ class Message {
         $stmt->bindParam(':sender_id', $this->sender_id, PDO::PARAM_INT);
         $stmt->bindParam(':receiver_id', $this->receiver_id, PDO::PARAM_INT);
         $stmt->bindParam(':message', $this->message);
+        if ($this->product_id !== null) {
+            $stmt->bindParam(':product_id', $this->product_id, PDO::PARAM_INT);
+        } else {
+            $stmt->bindValue(':product_id', null, PDO::PARAM_NULL);
+        }
         $stmt->bindParam(':status', $this->status);
         $stmt->bindParam(':is_read', $this->is_read, PDO::PARAM_INT);
 
