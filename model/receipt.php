@@ -22,29 +22,42 @@ class Receipt {
         return $errors;
     }
 
-    public function getReceipts($page = 1, $perPage = 20) {
-        $offset = ($page - 1) * $perPage;
+    public function getReceipts($page = null, $perPage = null) {
+        $query = 'SELECT * FROM ' . $this->receiptTable . ' ORDER BY receipt_id DESC';
+        
+        $countStmt = null;
+        $totalReceipts = null;
+        if ($page !== null && $perPage !== null) {
+            $countStmt = $this->conn->prepare('SELECT COUNT(*) FROM ' . $this->receiptTable);
+            $countStmt->execute();
+            $totalReceipts = $countStmt->fetchColumn();
+            
+            $offset = ($page - 1) * $perPage;
+            $query .= ' LIMIT :perPage OFFSET :offset';
+        }
 
-        $countStmt = $this->conn->prepare('SELECT COUNT(*) FROM ' . $this->receiptTable);
-        $countStmt->execute();
-        $totalReceipts = $countStmt->fetchColumn();
-
-        $query = 'SELECT * FROM ' . $this->receiptTable . ' ORDER BY receipt_id DESC LIMIT :perPage OFFSET :offset';
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
-        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        if ($page !== null && $perPage !== null) {
+            $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
+            $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        }
         $stmt->execute();
 
         $receipts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        return [
+        $result = [
             'success' => true,
-            'receipts' => $receipts,
-            'page' => $page,
-            'perPage' => $perPage,
-            'totalReceipts' => $totalReceipts,
-            'totalPages' => ceil($totalReceipts / $perPage)
+            'receipts' => $receipts
         ];
+        
+        if ($page !== null && $perPage !== null) {
+            $result['page'] = $page;
+            $result['perPage'] = $perPage;
+            $result['totalReceipts'] = $totalReceipts;
+            $result['totalPages'] = ceil($totalReceipts / $perPage);
+        }
+        
+        return $result;
     }
 
     public function getReceiptById($receipt_id) {

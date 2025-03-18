@@ -20,60 +20,82 @@ class Rating {
         return $errors;
     }
 
-    public function getAll($page = 1, $perPage = 20) {
-        $offset = ($page - 1) * $perPage;
+    public function getAll($page = null, $perPage = null) {
+        $query = 'SELECT * FROM ' . $this->table . ' ORDER BY rating_id DESC';
+        
+        $countStmt = null;
+        $totalRatings = null;
+        if ($page !== null && $perPage !== null) {
+            $countStmt = $this->conn->prepare('SELECT COUNT(*) FROM ' . $this->table);
+            $countStmt->execute();
+            $totalRatings = $countStmt->fetchColumn();
 
-        // Get total count
-        $countStmt = $this->conn->prepare('SELECT COUNT(*) FROM ' . $this->table);
-        $countStmt->execute();
-        $totalRatings = $countStmt->fetchColumn();
+            $offset = ($page - 1) * $perPage;
+            $query .= ' LIMIT :perPage OFFSET :offset';
+        }
 
-        // Get paginated ratings
-        $query = 'SELECT * FROM ' . $this->table . ' ORDER BY rating_id DESC LIMIT :perPage OFFSET :offset';
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
-        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        if ($page !== null && $perPage !== null) {
+            $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
+            $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        }
         $stmt->execute();
 
         $ratings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        return [
+        $result = [
             'success' => true,
-            'ratings' => $ratings,
-            'page' => $page,
-            'perPage' => $perPage,
-            'totalRatings' => $totalRatings,
-            'totalPages' => ceil($totalRatings / $perPage)
+            'ratings' => $ratings
         ];
+        
+        if ($page !== null && $perPage !== null) {
+            $result['page'] = $page;
+            $result['perPage'] = $perPage;
+            $result['totalRatings'] = $totalRatings;
+            $result['totalPages'] = ceil($totalRatings / $perPage);
+        }
+        
+        return $result;
     }
 
-    public function getByProductId($product_id, $page = 1, $perPage = 20) {
-        $offset = ($page - 1) * $perPage;
+    public function getByProductId($product_id, $page = null, $perPage = null) {
+        $query = 'SELECT * FROM ' . $this->table . ' WHERE product_id = :product_id ORDER BY rating_id DESC';
+        
+        $countStmt = null;
+        $totalRatings = null;
+        if ($page !== null && $perPage !== null) {
+            $countStmt = $this->conn->prepare('SELECT COUNT(*) FROM ' . $this->table . ' WHERE product_id = :product_id');
+            $countStmt->bindParam(':product_id', $product_id, PDO::PARAM_INT);
+            $countStmt->execute();
+            $totalRatings = $countStmt->fetchColumn();
 
-        // Get total count for this product
-        $countStmt = $this->conn->prepare('SELECT COUNT(*) FROM ' . $this->table . ' WHERE product_id = :product_id');
-        $countStmt->bindParam(':product_id', $product_id, PDO::PARAM_INT);
-        $countStmt->execute();
-        $totalRatings = $countStmt->fetchColumn();
+            $offset = ($page - 1) * $perPage;
+            $query .= ' LIMIT :perPage OFFSET :offset';
+        }
 
-        // Get paginated ratings for this product
-        $query = 'SELECT * FROM ' . $this->table . ' WHERE product_id = :product_id ORDER BY rating_id DESC LIMIT :perPage OFFSET :offset';
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':product_id', $product_id, PDO::PARAM_INT);
-        $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
-        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        if ($page !== null && $perPage !== null) {
+            $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
+            $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        }
         $stmt->execute();
 
         $ratings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        return [
+        $result = [
             'success' => true,
-            'ratings' => $ratings,
-            'page' => $page,
-            'perPage' => $perPage,
-            'totalRatings' => $totalRatings,
-            'totalPages' => ceil($totalRatings / $perPage)
+            'ratings' => $ratings
         ];
+        
+        if ($page !== null && $perPage !== null) {
+            $result['page'] = $page;
+            $result['perPage'] = $perPage;
+            $result['totalRatings'] = $totalRatings;
+            $result['totalPages'] = ceil($totalRatings / $perPage);
+        }
+        
+        return $result;
     }
 
     public function getById($rating_id) {

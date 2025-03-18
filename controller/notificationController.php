@@ -31,7 +31,6 @@ class NotificationController {
         $this->notificationModel->message = $data['message'] ?? '';
         $this->notificationModel->is_read = $data['is_read'] ?? 0;
 
-        // Only admins can create notifications for other users
         if ($user['roles'] !== 'admin' && $this->notificationModel->user_id != $user['sub']) {
             return [
                 'status' => 403,
@@ -61,7 +60,7 @@ class NotificationController {
         ];
     }
 
-    public function getAll($page = 1, $perPage = 20) {
+    public function getAll($page = null, $perPage = null) {
         $user = $this->authenticateAPI();
         if ($user['roles'] !== 'admin') {
             return [
@@ -72,19 +71,11 @@ class NotificationController {
 
         $result = $this->notificationModel->getAll($page, $perPage);
         return $result['success'] 
-            ? [
-                'status' => 200,
-                'body' => [
-                    'success' => true,
-                    'notifications' => $result['notifications'],
-                    'page' => $result['page'],
-                    'perPage' => $result['perPage']
-                ]
-            ] 
+            ? ['status' => 200, 'body' => $result] 
             : ['status' => 500, 'body' => ['success' => false, 'errors' => $result['errors']]];
     }
 
-    public function getUserNotifications($userId, $page = 1, $perPage = 20) {
+    public function getUserNotifications($userId, $page = null, $perPage = null) {
         $user = $this->authenticateAPI();
         if (empty($userId)) {
             return [
@@ -101,15 +92,7 @@ class NotificationController {
 
         $result = $this->notificationModel->getUserNotifications($userId, $page, $perPage);
         return $result['success'] 
-            ? [
-                'status' => 200,
-                'body' => [
-                    'success' => true,
-                    'notifications' => $result['notifications'],
-                    'page' => $result['page'],
-                    'perPage' => $result['perPage']
-                ]
-            ] 
+            ? ['status' => 200, 'body' => $result] 
             : ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
     }
 
@@ -158,7 +141,6 @@ class NotificationController {
 
         $result = $this->notificationModel->markAsRead($id);
         if ($result['success']) {
-            // Optionally broadcast the updated status
             $notificationData = [
                 'id' => $id,
                 'user_id' => $notification['notification']['user_id'],
@@ -175,7 +157,7 @@ class NotificationController {
 
     private function broadcastNotification($notificationData) {
         try {
-            $client = new \WebSocket\Client("ws://localhost:8080");
+            $client = new \WebSocket\Client("ws://localhost:8081");
             $payload = [
                 'user_id' => $notificationData['user_id'],
                 'message' => $notificationData['message'],
@@ -216,7 +198,6 @@ class NotificationController {
 
         $result = $this->notificationModel->update($id, $data);
         if ($result['success']) {
-            // Optionally broadcast the updated notification
             $updatedNotification = $this->notificationModel->getNotificationById($id)['notification'];
             $notificationData = [
                 'id' => $id,

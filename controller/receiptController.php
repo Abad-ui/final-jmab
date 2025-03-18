@@ -27,19 +27,12 @@ class ReceiptController {
         return in_array('admin', $roles);
     }
 
-    public function getAll($page = 1, $perPage = 20) {
+    public function getAll($page = null, $perPage = null) {
         $this->authenticateAPI();
         $result = $this->receiptModel->getReceipts($page, $perPage);
         return [
             'status' => 200,
-            'body' => [
-                'success' => true,
-                'receipts' => $result['receipts'],
-                'page' => $result['page'],
-                'perPage' => $result['perPage'],
-                'totalReceipts' => $result['totalReceipts'],
-                'totalPages' => $result['totalPages']
-            ]
+            'body' => $result
         ];
     }
 

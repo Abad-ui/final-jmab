@@ -21,9 +21,14 @@ class CartController {
         $this->authenticateAPI();
         $carts = $this->cartModel->getAllCarts();
         
-        return $carts['data'] === null 
-            ? ['status' => 404, 'body' => ['success' => false, 'errors' => ['No carts found.']]] 
-            : ['status' => 200, 'body' => ['success' => true, 'cart' => $carts]];
+        return [
+            'status' => 200,
+            'body' => [
+                'success' => true,
+                'cart' => $carts['data'],
+                'message' => $carts['message'] ?? null
+            ]
+        ];
     }
 
     public function getById($userId) {
@@ -36,25 +41,39 @@ class CartController {
     }
 
     public function create(array $data) {
-        $this->authenticateAPI();
+        $userData = $this->authenticateAPI();
         $userId = $data['user_id'] ?? null;
-        $productId = $data['product_id'] ?? null;
+        $variantId = $data['variant_id'] ?? null; // Changed from product_id to variant_id
         $quantity = $data['quantity'] ?? null;
 
-        if (!$userId || !$productId || !$quantity) {
-            return ['status' => 400, 'body' => ['success' => false, 'errors' => ['User ID, Product ID, and Quantity are required.']]];
+        if (!$userId || !$variantId || !$quantity) {
+            return ['status' => 400, 'body' => ['success' => false, 'errors' => ['User ID, Variant ID, and Quantity are required.']]];
         }
 
-        $result = $this->cartModel->createCart($userId, $productId, $quantity);
+        // Verify user making request matches the cart user
+        if ($userData['sub'] != $userId) {
+            return ['status' => 403, 'body' => ['success' => false, 'errors' => ['You can only modify your own cart.']]];
+        }
+
+        $result = $this->cartModel->createCart($userId, $variantId, $quantity);
         return ['status' => $result['success'] ? 201 : 400, 'body' => $result];
     }
 
     public function update($cartId, array $data) {
-        $this->authenticateAPI();
+        $userData = $this->authenticateAPI();
         $quantity = $data['quantity'] ?? null;
 
         if ($quantity === null) {
             return ['status' => 400, 'body' => ['success' => false, 'errors' => ['Quantity is required.']]];
+        }
+
+        // Verify cart belongs to user
+        $cartStmt = $this->cartModel->conn->prepare("SELECT user_id FROM cart WHERE cart_id = ?");
+        $cartStmt->execute([$cartId]);
+        $cartUserId = $cartStmt->fetchColumn();
+        
+        if ($cartUserId === false || $cartUserId != $userData['sub']) { // Changed to sub for JWT consistency
+            return ['status' => 403, 'body' => ['success' => false, 'errors' => ['You can only modify your own cart.']]];
         }
 
         $result = $this->cartModel->updateCart((int)$cartId, $quantity);
@@ -62,11 +81,20 @@ class CartController {
     }
 
     public function delete($cartIds) {
-        $this->authenticateAPI();
+        $userData = $this->authenticateAPI();
         $cartIdsArray = is_array($cartIds) ? $cartIds : array_filter(explode(',', $cartIds), 'is_numeric');
 
         if (empty($cartIdsArray)) {
             return ['status' => 400, 'body' => ['success' => false, 'errors' => ['Invalid cart ID(s) provided.']]];
+        }
+
+        // Verify all carts belong to user
+        $placeholders = implode(',', array_fill(0, count($cartIdsArray), '?'));
+        $stmt = $this->cartModel->conn->prepare("SELECT COUNT(*) FROM cart WHERE cart_id IN ($placeholders) AND user_id != ?");
+        $stmt->execute([...$cartIdsArray, $userData['sub']]); // Changed to sub
+        
+        if ($stmt->fetchColumn() > 0) {
+            return ['status' => 403, 'body' => ['success' => false, 'errors' => ['You can only delete your own cart items.']]];
         }
 
         $result = $this->cartModel->deleteCart($cartIdsArray);

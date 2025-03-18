@@ -8,8 +8,7 @@ class Message {
     private $table = 'messages';
 
     public $id, $sender_id, $receiver_id, $message, $timestamp, $status, $is_read;
-    public $product_id = null;
-    
+
     public function __construct() {
         $this->conn = (new Database())->connect();
     }
@@ -38,20 +37,15 @@ class Message {
             return ['success' => false, 'errors' => ['Sender or Receiver does not exist.']];
         }
 
-        $query = 'INSERT INTO ' . $this->table . ' (sender_id, receiver_id, message, product_id, timestamp, status, is_read) 
-          VALUES (:sender_id, :receiver_id, :message, :product_id, NOW(), :status, :is_read)';
+        $query = 'INSERT INTO ' . $this->table . ' (sender_id, receiver_id, message, timestamp, status, is_read) 
+                  VALUES (:sender_id, :receiver_id, :message, NOW(), :status, :is_read)';
         $stmt = $this->conn->prepare($query);
-        $this->status = 'delivered'; // Auto-set to 'delivered' upon server receipt
+        $this->status = 'delivered';
         $this->is_read = 0;
 
         $stmt->bindParam(':sender_id', $this->sender_id, PDO::PARAM_INT);
         $stmt->bindParam(':receiver_id', $this->receiver_id, PDO::PARAM_INT);
         $stmt->bindParam(':message', $this->message);
-        if ($this->product_id !== null) {
-            $stmt->bindParam(':product_id', $this->product_id, PDO::PARAM_INT);
-        } else {
-            $stmt->bindValue(':product_id', null, PDO::PARAM_NULL);
-        }
         $stmt->bindParam(':status', $this->status);
         $stmt->bindParam(':is_read', $this->is_read, PDO::PARAM_INT);
 
@@ -65,63 +59,85 @@ class Message {
         }
     }
 
-    public function getMessages($userId, $page = 1, $perPage = 20) {
+    public function getMessages($userId, $page = null, $perPage = null) {
         if (!is_numeric($userId)) return ['success' => false, 'errors' => ['User ID must be numeric.']];
 
-        $offset = ($page - 1) * $perPage;
         $query = 'SELECT id, sender_id, receiver_id, message, timestamp, status, is_read 
                   FROM ' . $this->table . ' 
                   WHERE (sender_id = :user_id OR receiver_id = :user_id) AND deleted_at IS NULL 
-                  ORDER BY timestamp DESC 
-                  LIMIT :perPage OFFSET :offset';
+                  ORDER BY timestamp DESC';
+        
+        if ($page !== null && $perPage !== null) {
+            $offset = ($page - 1) * $perPage;
+            $query .= ' LIMIT :perPage OFFSET :offset';
+        }
+
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':user_id', $userId, PDO::PARAM_INT);
-        $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
-        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        
+        if ($page !== null && $perPage !== null) {
+            $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
+            $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        }
+        
         $stmt->execute();
-
         $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // Auto-update 'read' status for receiver's messages
         foreach ($messages as $message) {
             if ($message['receiver_id'] == $userId && !$message['is_read']) {
                 $this->updateReadStatus($message['id']);
             }
         }
 
-        return ['success' => true, 'messages' => $messages, 'page' => $page, 'perPage' => $perPage];
+        $result = ['success' => true, 'messages' => $messages];
+        if ($page !== null && $perPage !== null) {
+            $result['page'] = $page;
+            $result['perPage'] = $perPage;
+        }
+        return $result;
     }
 
-    public function getConversation($userId, $otherUserId, $page = 1, $perPage = 20) {
+    public function getConversation($userId, $otherUserId, $page = null, $perPage = null) {
         if (!is_numeric($userId) || !is_numeric($otherUserId)) {
             return ['success' => false, 'errors' => ['User IDs must be numeric.']];
         }
 
-        $offset = ($page - 1) * $perPage;
         $query = 'SELECT id, sender_id, receiver_id, message, timestamp, status, is_read 
                   FROM ' . $this->table . ' 
                   WHERE ((sender_id = :user_id AND receiver_id = :other_user_id) 
                       OR (sender_id = :other_user_id AND receiver_id = :user_id)) 
                       AND deleted_at IS NULL 
-                  ORDER BY timestamp DESC 
-                  LIMIT :perPage OFFSET :offset';
+                  ORDER BY timestamp DESC';
+        
+        if ($page !== null && $perPage !== null) {
+            $offset = ($page - 1) * $perPage;
+            $query .= ' LIMIT :perPage OFFSET :offset';
+        }
+
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':user_id', $userId, PDO::PARAM_INT);
         $stmt->bindParam(':other_user_id', $otherUserId, PDO::PARAM_INT);
-        $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
-        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        
+        if ($page !== null && $perPage !== null) {
+            $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
+            $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        }
+        
         $stmt->execute();
-
         $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        // Auto-update 'read' status for receiver's messages
         foreach ($messages as $message) {
             if ($message['receiver_id'] == $userId && !$message['is_read']) {
                 $this->updateReadStatus($message['id']);
             }
         }
 
-        return ['success' => true, 'messages' => $messages, 'page' => $page, 'perPage' => $perPage];
+        $result = ['success' => true, 'messages' => $messages];
+        if ($page !== null && $perPage !== null) {
+            $result['page'] = $page;
+            $result['perPage'] = $perPage;
+        }
+        return $result;
     }
 
     public function getMessageById($id, $userId = null) {
@@ -140,16 +156,30 @@ class Message {
         return $message ? ['success' => true, 'message' => $message] : ['success' => false, 'errors' => ['Message not found or deleted.']];
     }
 
-    public function getAll($page = 1, $perPage = 20) {
+    public function getAll($page = null, $perPage = null) {
         try {
-            $offset = ($page - 1) * $perPage;
-            $stmt = $this->conn->prepare('SELECT id, sender_id, receiver_id, message, timestamp, status, is_read 
-                                          FROM ' . $this->table . ' WHERE deleted_at IS NULL 
-                                          ORDER BY timestamp DESC LIMIT :perPage OFFSET :offset');
-            $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
-            $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+            $query = 'SELECT id, sender_id, receiver_id, message, timestamp, status, is_read 
+                      FROM ' . $this->table . ' WHERE deleted_at IS NULL 
+                      ORDER BY timestamp DESC';
+            
+            if ($page !== null && $perPage !== null) {
+                $offset = ($page - 1) * $perPage;
+                $query .= ' LIMIT :perPage OFFSET :offset';
+            }
+
+            $stmt = $this->conn->prepare($query);
+            if ($page !== null && $perPage !== null) {
+                $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
+                $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+            }
             $stmt->execute();
-            return ['success' => true, 'messages' => $stmt->fetchAll(PDO::FETCH_ASSOC), 'page' => $page, 'perPage' => $perPage];
+            
+            $result = ['success' => true, 'messages' => $stmt->fetchAll(PDO::FETCH_ASSOC)];
+            if ($page !== null && $perPage !== null) {
+                $result['page'] = $page;
+                $result['perPage'] = $perPage;
+            }
+            return $result;
         } catch (PDOException $e) {
             error_log('Database Error: ' . $e->getMessage());
             return ['success' => false, 'errors' => ['Something went wrong. Please try again.']];

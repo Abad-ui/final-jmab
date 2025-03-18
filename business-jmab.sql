@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Mar 16, 2025 at 09:54 AM
+-- Generation Time: Mar 18, 2025 at 11:44 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -30,7 +30,7 @@ SET time_zone = "+00:00";
 CREATE TABLE `cart` (
   `cart_id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
-  `product_id` int(11) NOT NULL,
+  `variant_id` int(11) NOT NULL,
   `quantity` int(11) NOT NULL CHECK (`quantity` > 0),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
@@ -102,6 +102,7 @@ CREATE TABLE `order_items` (
   `order_item_id` int(11) NOT NULL,
   `order_id` int(11) NOT NULL,
   `product_id` int(11) DEFAULT NULL,
+  `variant_id` int(11) NOT NULL,
   `product_name` varchar(255) NOT NULL,
   `quantity` int(11) NOT NULL CHECK (`quantity` > 0),
   `price` decimal(10,2) NOT NULL,
@@ -152,33 +153,28 @@ CREATE TABLE `products` (
   `description` text DEFAULT NULL,
   `category` enum('Tires','Oils','Batteries','Lubricants') NOT NULL,
   `subcategory` varchar(255) DEFAULT NULL,
-  `price` decimal(10,2) NOT NULL,
-  `stock` int(11) NOT NULL,
   `image_url` varchar(255) NOT NULL,
+  `model` varchar(255) DEFAULT NULL,
   `brand` varchar(255) NOT NULL,
-  `size` varchar(50) DEFAULT NULL,
-  `voltage` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+
 --
--- Dumping data for table `products`
+-- Table structure for table `product_variants`
 --
 
-INSERT INTO `products` (`product_id`, `name`, `description`, `category`, `subcategory`, `price`, `stock`, `image_url`, `brand`, `size`, `voltage`, `created_at`, `updated_at`) VALUES
-(8, 'Super Lube', 'A powerful synthetic lubricant known for its extreme durability and protection. Engineered to handle high-pressure and high-temperature conditions, it ensures smooth performance in demanding applications. Its advanced formulation enhances fuel efficiency and reduces engine wear. A top-tier choice for those needing the strongest lubrication available.', 'Lubricants', '', 3210.00, 91, 'https://m.media-amazon.com/images/I/61yFewKFB+L._SX522_.jpg', 'Synthetic', '', 0, '2025-03-02 13:11:55', '2025-03-15 05:55:27'),
-(9, 'Delco', 'A well-known battery brand offering superior charge retention and extended lifespan. It features advanced technology for efficient power delivery and minimal self-discharge. The battery is built to withstand harsh environments while maintaining optimal performance. A smart investment for those seeking a maintenance-free, high-performance battery.', 'Batteries', '', 2031.00, 50, 'https://m.media-amazon.com/images/I/71QuCK6A4QL._AC_SX466_.jpg', 'Delco', '', 50, '2025-03-02 13:13:19', '2025-03-15 05:53:09'),
-(12, 'BlueEarth Van', 'A fuel-efficient and eco-friendly tire built for commercial vans and light trucks. Its low rolling resistance helps reduce fuel consumption while maintaining excellent durability. The tire’s strong grip and reinforced sidewalls enhance stability under heavy loads. A great option for businesses seeking long-lasting performance.', 'Tires', '', 5705.00, 23, 'https://i.pinimg.com/736x/f0/4d/d7/f04dd747bbd1910d3f18751829d20eac.jpg', 'Yokohama', '14', 0, '2025-03-08 20:45:35', '2025-03-15 05:52:12'),
-(13, 'Pilot Sport', 'A high-performance tire designed for sports cars and dynamic driving. Its precise handling and cornering stability make it ideal for high-speed maneuvers. The tire’s specialized rubber compound enhances grip, even in wet conditions. Perfect for enthusiasts who demand control and responsiveness.', 'Tires', '', 3380.00, 12, 'https://www.tirestickers.com/wp-content/uploads/2019/01/Michelin-side-PS4S-tirestickers.jpg', 'Michelin', '14', 0, '2025-03-08 20:46:23', '2025-03-15 05:52:02'),
-(14, 'Bridgestone', 'Engineered for safety and performance, this tire provides excellent handling and stability on various road surfaces. Its advanced rubber compound enhances fuel efficiency and reduces wear. The deep tread design ensures optimal grip in both wet and dry conditions. A solid choice for drivers prioritizing reliability.', 'Tires', '', 5400.00, 7, 'https://i.ebayimg.com/images/g/41EAAOSwh3RghsI~/s-l1200.jpg', 'Bridgestone', '14', 0, '2025-03-08 20:47:30', '2025-03-15 05:51:49'),
-(15, 'All-Terrain', 'Built for off-road adventures and rugged terrains, this tire features an aggressive tread for maximum traction. Its tough sidewalls enhance durability, making it resistant to punctures and cuts. Despite its rugged nature, it offers a smooth on-road driving experience. Perfect for those who explore beyond the pavement.', 'Tires', '', 5140.00, 11, 'https://aecbmesvcm.cloudimg.io/v7/https://cxf-prod.azureedge.net/b2c-experience-bfg-production/attachments/ck344dplw0nxz0jnozasbori6-bfgoodrich-all-terrain-t-a-sup-ko2-sup-home-background-md.png?w=412&h=412&org_if_sml=1&func=boundmin', 'BFGoodrich', '14', 0, '2025-03-08 20:48:51', '2025-03-15 05:51:39'),
-(16, 'Goodyear', 'A high-performance tire known for its superior handling and durability. Designed to maximize fuel efficiency, it provides outstanding wet and dry traction. Its innovative tread pattern ensures a quiet ride while maintaining excellent grip on the road. Ideal for drivers seeking a blend of performance and reliability.', 'Tires', '', 76420.00, 1, 'https://mma.prnewswire.com/media/2047095/goodyear_400_tire_20230404.jpg', 'Goodyear', '14', 0, '2025-03-08 20:50:15', '2025-03-15 05:51:29'),
-(17, 'Defender', 'A premium all-season tire built for longevity, comfort, and safety. Its advanced tread technology provides excellent grip, reducing braking distance on wet and dry roads. The tire’s durable construction ensures even wear, extending its lifespan. Perfect for those looking for a smooth and quiet ride.', 'Tires', '', 1424.00, 9, 'https://images-cdn.ubuy.ae/64c3e35cc2eddd1359706794-michelin-defender-ltx-m-s-all-season.jpg', 'Michelin', '14', 0, '2025-03-08 20:51:10', '2025-03-15 05:51:13'),
-(18, 'Atrezzo', 'This all-season tire delivers a balance of performance, comfort, and efficiency. Engineered for superior grip and handling, it ensures stability in wet and dry conditions. Its optimized tread design reduces road noise while enhancing fuel efficiency. A great choice for daily commuters and long-haul drivers.', 'Tires', '', 2700.00, 6, 'https://s19532.pcdn.co/wp-content/uploads/2024/03/Atrezzo-Tcon-45%C2%B0-1_RFS.jpg', 'Sailun', '14', 0, '2025-03-08 20:52:21', '2025-03-15 05:51:03'),
-(19, 'Radial', 'A durable and stable tire designed for everyday driving and long-distance travel. It offers excellent traction and a smooth ride, ensuring safety in various road conditions. With reinforced construction, it provides longevity and resistance to wear. Ideal for drivers who prioritize reliability and comfort.', 'Tires', '', 3230.00, 100, 'https://gtradial.ph/wp-content/uploads/2018/06/GT879-30-300x300.jpg', 'Gajah Tunggal', '14', 0, '2025-03-08 20:53:11', '2025-03-15 14:28:14'),
-(20, 'Power Plus', 'Designed for boats, RVs, and off-grid setups, this battery provides deep-cycle power for extended use. Its vibration-resistant design ensures longevity, even in rough conditions. Corrosion-resistant terminals improve performance and reduce maintenance needs. Ideal for outdoor enthusiasts who need reliable energy storage.', 'Batteries', '', 1091.00, 5, 'https://advancedbatterysupplies.co.uk/wp-content/uploads/2015/02/lp75-leisure-battery-75ah-image.jpg', 'Leisure & Marine', '', 110, '2025-03-08 20:55:10', '2025-03-15 05:52:59'),
-(21, 'Mercury', 'A powerful and long-lasting battery designed for vehicles that require consistent energy output. It offers reliable starts, even in extreme weather conditions, thanks to its high cold-cranking amps (CCA). With a maintenance-free design, it ensures convenience and efficiency. A trusted choice for drivers looking for durability and performance.', 'Batteries', '', 3960.00, 8, 'https://ph-test-11.slatic.net/p/80462a91f011476443ca1cea4ef2da6e.jpg', 'Dyna Power', '', 110, '2025-03-08 20:56:26', '2025-03-15 05:52:48');
+CREATE TABLE `product_variants` (
+  `variant_id` int(11) NOT NULL,
+  `product_id` int(11) NOT NULL,
+  `price` decimal(10,2) NOT NULL,
+  `stock` int(11) NOT NULL,
+  `size` varchar(50) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -243,8 +239,7 @@ CREATE TABLE `user_addresses` (
 INSERT INTO `user_addresses` (`id`, `user_id`, `home_address`, `barangay`, `city`, `is_default`, `created_at`, `updated_at`) VALUES
 (17, 12, '55', 'Bued', 'Calasiao', 1, '2025-03-11 06:50:33', '2025-03-11 06:50:35'),
 (36, 1, '89', 'Tebeng', 'Dagupan', 0, '2025-03-13 14:17:12', '2025-03-13 15:20:42'),
-(37, 1, '89', 'Amangbangan', 'Alaminos City', 1, '2025-03-13 15:20:42', '2025-03-13 15:20:42'),
-(38, 18, '45', 'Bacayao Sur', 'Dagupan', 1, '2025-03-15 10:27:00', '2025-03-15 10:27:02');
+(37, 1, '89', 'Amangbangan', 'Alaminos City', 1, '2025-03-13 15:20:42', '2025-03-13 15:20:42');
 
 --
 -- Indexes for dumped tables
@@ -256,7 +251,7 @@ INSERT INTO `user_addresses` (`id`, `user_id`, `home_address`, `barangay`, `city
 ALTER TABLE `cart`
   ADD PRIMARY KEY (`cart_id`),
   ADD KEY `user_id` (`user_id`),
-  ADD KEY `product_id` (`product_id`);
+  ADD KEY `product_id` (`variant_id`);
 
 --
 -- Indexes for table `messages`
@@ -288,7 +283,8 @@ ALTER TABLE `orders`
 ALTER TABLE `order_items`
   ADD PRIMARY KEY (`order_item_id`),
   ADD KEY `order_id` (`order_id`),
-  ADD KEY `product_id` (`product_id`);
+  ADD KEY `product_id` (`product_id`),
+  ADD KEY `fk_order_items_variant` (`variant_id`);
 
 --
 -- Indexes for table `order_receipts`
@@ -312,6 +308,13 @@ ALTER TABLE `productratings`
 --
 ALTER TABLE `products`
   ADD PRIMARY KEY (`product_id`);
+
+--
+-- Indexes for table `product_variants`
+--
+ALTER TABLE `product_variants`
+  ADD PRIMARY KEY (`variant_id`),
+  ADD KEY `product_id` (`product_id`);
 
 --
 -- Indexes for table `users`
@@ -377,7 +380,13 @@ ALTER TABLE `productratings`
 -- AUTO_INCREMENT for table `products`
 --
 ALTER TABLE `products`
-  MODIFY `product_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=26;
+  MODIFY `product_id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `product_variants`
+--
+ALTER TABLE `product_variants`
+  MODIFY `variant_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `users`
@@ -400,7 +409,7 @@ ALTER TABLE `user_addresses`
 --
 ALTER TABLE `cart`
   ADD CONSTRAINT `cart_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
-  ADD CONSTRAINT `cart_ibfk_2` FOREIGN KEY (`product_id`) REFERENCES `products` (`product_id`) ON DELETE CASCADE;
+  ADD CONSTRAINT `fk_cart_variant` FOREIGN KEY (`variant_id`) REFERENCES `product_variants` (`variant_id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `messages`
@@ -426,6 +435,7 @@ ALTER TABLE `orders`
 -- Constraints for table `order_items`
 --
 ALTER TABLE `order_items`
+  ADD CONSTRAINT `fk_order_items_variant` FOREIGN KEY (`variant_id`) REFERENCES `product_variants` (`variant_id`),
   ADD CONSTRAINT `order_items_fk_product` FOREIGN KEY (`product_id`) REFERENCES `products` (`product_id`) ON DELETE SET NULL,
   ADD CONSTRAINT `order_items_ibfk_1` FOREIGN KEY (`order_id`) REFERENCES `orders` (`order_id`) ON DELETE CASCADE;
 
@@ -443,6 +453,12 @@ ALTER TABLE `order_receipts`
 ALTER TABLE `productratings`
   ADD CONSTRAINT `productratings_ibfk_1` FOREIGN KEY (`product_id`) REFERENCES `products` (`product_id`),
   ADD CONSTRAINT `productratings_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`);
+
+--
+-- Constraints for table `product_variants`
+--
+ALTER TABLE `product_variants`
+  ADD CONSTRAINT `product_variants_ibfk_1` FOREIGN KEY (`product_id`) REFERENCES `products` (`product_id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `user_addresses`

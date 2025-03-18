@@ -29,9 +29,7 @@ class MessageController {
         $this->messageModel->sender_id = $data['sender_id'] ?? '';
         $this->messageModel->receiver_id = $data['receiver_id'] ?? '';
         $this->messageModel->message = $data['message'] ?? '';
-        $this->messageModel->product_id = isset($data['product_id']) && !empty($data['product_id']) 
-        ? $data['product_id'] : null;
-        $this->messageModel->status = $data['status'] ?? 'sent'; // Note: Model overrides to 'delivered'
+        $this->messageModel->status = $data['status'] ?? 'sent';
         $this->messageModel->is_read = $data['is_read'] ?? 0;
 
         if ($this->messageModel->sender_id != $user['sub']) {
@@ -52,11 +50,6 @@ class MessageController {
                 'status' => 'delivered',
                 'is_read' => $this->messageModel->is_read
             ];
-
-            if ($this->messageModel->product_id) {
-                $messageData['product_id'] = $this->messageModel->product_id;
-            }
-            
             $this->broadcastMessage($messageData);
             return [
                 'status' => 201,
@@ -69,7 +62,7 @@ class MessageController {
         ];
     }
 
-    public function getAll($page = 1, $perPage = 20) {
+    public function getAll($page = null, $perPage = null) {
         $user = $this->authenticateAPI();
         if ($user['roles'] !== 'admin') {
             return [
@@ -80,19 +73,11 @@ class MessageController {
 
         $result = $this->messageModel->getAll($page, $perPage);
         return $result['success'] 
-            ? [
-                'status' => 200,
-                'body' => [
-                    'success' => true,
-                    'messages' => $result['messages'],
-                    'page' => $result['page'],
-                    'perPage' => $result['perPage']
-                ]
-            ] 
+            ? ['status' => 200, 'body' => $result] 
             : ['status' => 500, 'body' => ['success' => false, 'errors' => $result['errors']]];
     }
 
-    public function getMessages($userId, $page = 1, $perPage = 20) {
+    public function getMessages($userId, $page = null, $perPage = null) {
         $this->authenticateAPI();
         if (empty($userId)) {
             return [
@@ -104,19 +89,11 @@ class MessageController {
         error_log("getMessages - userId: '$userId' (Type: " . gettype($userId) . ")");
         $result = $this->messageModel->getMessages($userId, $page, $perPage);
         return $result['success'] 
-            ? [
-                'status' => 200,
-                'body' => [
-                    'success' => true,
-                    'messages' => $result['messages'],
-                    'page' => $result['page'],
-                    'perPage' => $result['perPage']
-                ]
-            ] 
+            ? ['status' => 200, 'body' => $result] 
             : ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
     }
 
-    public function getConversation($userId, $otherUserId, $page = 1, $perPage = 20) {
+    public function getConversation($userId, $otherUserId, $page = null, $perPage = null) {
         $user = $this->authenticateAPI();
         if (empty($userId) || empty($otherUserId)) {
             return [
@@ -133,15 +110,7 @@ class MessageController {
 
         $result = $this->messageModel->getConversation($userId, $otherUserId, $page, $perPage);
         return $result['success'] 
-            ? [
-                'status' => 200,
-                'body' => [
-                    'success' => true,
-                    'messages' => $result['messages'],
-                    'page' => $result['page'],
-                    'perPage' => $result['perPage']
-                ]
-            ] 
+            ? ['status' => 200, 'body' => $result] 
             : ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
     }
 
@@ -197,7 +166,6 @@ class MessageController {
             ];
         }
 
-        // Access control check
         $message = $this->messageModel->getMessageById($id)['message'];
         if ($message && $user['sub'] != $message['sender_id'] && $user['sub'] != $message['receiver_id'] && $user['roles'] !== 'admin') {
             return [

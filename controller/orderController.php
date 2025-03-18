@@ -23,8 +23,19 @@ class OrderController {
         return $result['user'];
     }
 
+    private function isAdmin($userData) {
+        $roles = isset($userData['roles']) ? (is_array($userData['roles']) ? $userData['roles'] : [$userData['roles']]) : [];
+        return in_array('admin', $roles);
+    }
+
     public function getAll() {
-        $this->authenticateAPI();
+        $userData = $this->authenticateAPI();
+        if (!$this->isAdmin($userData)) {
+            return [
+                'status' => 403,
+                'body' => ['success' => false, 'errors' => ['You do not have permission to view all orders.']]
+            ];
+        }
         $orders = $this->orderModel->getAllOrders();
         return $orders 
             ? ['status' => 200, 'body' => ['success' => true, 'orders' => $orders]] 
@@ -32,15 +43,27 @@ class OrderController {
     }
 
     public function getById($id) {
-        $this->authenticateAPI();
+        $userData = $this->authenticateAPI();
+        if ($userData['sub'] != $id && !$this->isAdmin($userData)) {
+            return [
+                'status' => 403,
+                'body' => ['success' => false, 'errors' => ['You can only view your own orders.']]
+            ];
+        }
         $orders = $this->orderModel->getOrderById($id);
         return $orders 
             ? ['status' => 200, 'body' => ['success' => true, 'orders' => $orders]] 
-            : ['status' => 404, 'body' => ['success' => false, 'errors' => ['No orders found for this ID.']]];
+            : ['status' => 404, 'body' => ['success' => false, 'errors' => ['No orders found for this user.']]];
     }
 
     public function create($userId, array $data) {
-        $this->authenticateAPI();
+        $userData = $this->authenticateAPI();
+        if ($userData['sub'] != $userId) {
+            return [
+                'status' => 403,
+                'body' => ['success' => false, 'errors' => ['You can only create orders for yourself.']]
+            ];
+        }
         if (empty($userId) || !is_numeric($userId)) {
             return [
                 'status' => 400,
@@ -73,11 +96,15 @@ class OrderController {
 
         $result = $this->orderModel->checkout($userId, $cartIds, $paymentMethod, $addressId);
         if ($result['success']) {
-            $responseBody = ['success' => true, 'message' => $result['message']];
+            $responseBody = [
+                'success' => true,
+                'message' => $result['message'],
+                'order_id' => $result['order_id']
+            ];
             if ($paymentMethod === 'gcash' && isset($result['payment_link'])) {
                 $responseBody['payment_link'] = $result['payment_link'];
             }
-            return ['status' => 200, 'body' => $responseBody];
+            return ['status' => 201, 'body' => $responseBody];
         }
         return ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
     }
@@ -93,7 +120,7 @@ class OrderController {
             ];
         }
 
-        $webhookSecret = "whsk_uRPewJKKaGwWNdecu5aAMJKo";
+        $webhookSecret = "whsk_is94vCtPo1zRaoWJDXLSU7jM";
         if (!$this->orderModel->verifyWebhookSignature($requestBody, $signatureHeader, $webhookSecret)) {
             return [
                 'status' => 401,
@@ -111,50 +138,48 @@ class OrderController {
     }
 
     public function update($id, array $data) {
-        try {
-            $this->authenticateAPI();
-            
-            if (empty($id) || !is_numeric($id)) {
-                return [
-                    'status' => 400,
-                    'body' => ['success' => false, 'errors' => ['Valid Order ID is required in the URL.']]
-                ];
-            }
-
-            $new_status = strtolower($data['status'] ?? '');
-            $valid_statuses = ['processing', 'out for delivery', 'delivered', 'failed delivery', 'cancelled'];
-            
-            if (empty($new_status) || !in_array($new_status, $valid_statuses)) {
-                return [
-                    'status' => 400,
-                    'body' => ['success' => false, 'errors' => ['Valid status is required. Allowed values: ' . implode(', ', $valid_statuses)]]
-                ];
-            }
-
-            $result = $this->orderModel->updateOrderStatus($id, $new_status);
-            
-            if ($result['success']) {
-                return [
-                    'status' => 200,
-                    'body' => ['success' => true, 'message' => $result['message']]
-                ];
-            }
-            
+        $userData = $this->authenticateAPI();
+        if (!$this->isAdmin($userData)) {
             return [
-                'status' => 400,
-                'body' => ['success' => false, 'errors' => [$result['message']]]
-            ];
-
-        } catch (Exception $e) {
-            return [
-                'status' => $e->getCode() ?: 500,
-                'body' => ['success' => false, 'errors' => [$e->getMessage()]]
+                'status' => 403,
+                'body' => ['success' => false, 'errors' => ['Only admins can update order status.']]
             ];
         }
+        
+        if (empty($id) || !is_numeric($id)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Valid Order ID is required in the URL.']]
+            ];
+        }
+
+        $new_status = strtolower($data['status'] ?? '');
+        $valid_statuses = ['processing', 'out for delivery', 'delivered', 'failed delivery', 'cancelled'];
+        
+        if (empty($new_status) || !in_array($new_status, $valid_statuses)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Valid status is required. Allowed values: ' . implode(', ', $valid_statuses)]]
+            ];
+        }
+
+        $result = $this->orderModel->updateOrderStatus($id, $new_status);
+        return [
+            'status' => $result['success'] ? 200 : 400,
+            'body' => $result['success'] 
+                ? ['success' => true, 'message' => $result['message']] 
+                : ['success' => false, 'errors' => [$result['message']]]
+        ];
     }
 
     public function delete($id) {
-        $this->authenticateAPI();
+        $userData = $this->authenticateAPI();
+        if (!$this->isAdmin($userData)) {
+            return [
+                'status' => 403,
+                'body' => ['success' => false, 'errors' => ['Only admins can delete orders.']]
+            ];
+        }
         return [
             'status' => 501,
             'body' => ['success' => false, 'errors' => ['Order deletion not implemented.']]

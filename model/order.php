@@ -20,11 +20,13 @@ class Order {
         $query = 'SELECT o.*, u.first_name, u.last_name, 
                          SUM(oi.quantity) AS total_quantity, 
                          COUNT(DISTINCT o.user_id) AS total_customers, 
-                         GROUP_CONCAT(DISTINCT CONCAT(oi.product_name, " (x", oi.quantity, ")") ORDER BY oi.product_name ASC SEPARATOR ", ") AS product_details
+                         oi.product_id AS product_id,
+                         GROUP_CONCAT(DISTINCT CONCAT(p.name, " - ", p.model, " - ", pv.size, " (x", oi.quantity, ")") ORDER BY p.name ASC SEPARATOR ", ") AS product_details
                   FROM ' . $this->orderTable . ' o
                   LEFT JOIN users u ON o.user_id = u.id
-                  LEFT JOIN order_items oi ON o.order_id = oi.order_id
-                  LEFT JOIN products p ON oi.product_id = p.product_id
+                  LEFT JOIN ' . $this->orderItemTable . ' oi ON o.order_id = oi.order_id
+                  LEFT JOIN product_variants pv ON oi.variant_id = pv.variant_id
+                  LEFT JOIN products p ON pv.product_id = p.product_id
                   GROUP BY o.order_id';
     
         $stmt = $this->conn->prepare($query);
@@ -37,12 +39,16 @@ class Order {
         $query = 'SELECT o.order_id, o.user_id, o.payment_method, o.payment_status, o.status, 
                          o.reference_number, o.paymongo_session_id, o.paymongo_payment_id, 
                          o.home_address, o.barangay, o.city, o.created_at, o.updated_at,
-                         oi.quantity, p.name AS product_name, p.price AS product_price, 
-                         (oi.quantity * p.price) AS total_price, p.image_url AS product_image, 
-                         p.brand AS product_brand
+                         oi.quantity, p.name AS product_name, pv.price AS variant_price, 
+                         pv.size AS variant_size, pv.variant_id,
+                         oi.product_id AS product_id,
+                         (oi.quantity * pv.price) AS total_price, 
+                         p.image_url AS product_image, p.brand AS product_brand, 
+                         p.model AS product_model
                   FROM ' . $this->orderTable . ' o
-                  LEFT JOIN order_items oi ON o.order_id = oi.order_id
-                  LEFT JOIN products p ON oi.product_id = p.product_id
+                  LEFT JOIN ' . $this->orderItemTable . ' oi ON o.order_id = oi.order_id
+                  LEFT JOIN product_variants pv ON oi.variant_id = pv.variant_id
+                  LEFT JOIN products p ON pv.product_id = p.product_id
                   WHERE o.user_id = :user_id';
     
         $stmt = $this->conn->prepare($query);
@@ -52,8 +58,6 @@ class Order {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
     
-    
-
     public function createGcashCheckoutSession($cartItems, $first_name, $last_name, $success_url, $cancel_url, $referenceNumber) {
         $api_url = "https://api.paymongo.com/v1/checkout_sessions";
         $api_key = "sk_test_upzoTe7kRXHL9TGogLFjuaji";
@@ -61,8 +65,8 @@ class Order {
         $lineItems = array_map(function ($item) {
             return [
                 'currency' => 'PHP',
-                'amount' => $item['product_price'] * 100,
-                'name' => $item['product_name'],
+                'amount' => $item['variant_price'] * 100, // Use variant_price
+                'name' => $item['product_name'] . ' - ' . $item['product_model'] . ' - ' . $item['variant_size'], // Include model
                 'quantity' => $item['quantity'],
                 'description' => 'Item in Order'
             ];
@@ -94,12 +98,11 @@ class Order {
             ]);
             $body = json_decode($response->getBody()->getContents(), true);
 
-            // Add this code right here, after getting the response
-        $sessionId = $body['data']['id'] ?? null;
-        if ($sessionId) {
-            $stmt = $this->conn->prepare("UPDATE {$this->orderTable} SET paymongo_session_id = ? WHERE reference_number = ?");
-            $stmt->execute([$sessionId, $referenceNumber]);
-        }
+            $sessionId = $body['data']['id'] ?? null;
+            if ($sessionId) {
+                $stmt = $this->conn->prepare("UPDATE {$this->orderTable} SET paymongo_session_id = ? WHERE reference_number = ?");
+                $stmt->execute([$sessionId, $referenceNumber]);
+            }
 
             return $body['data']['attributes']['checkout_url'] ?? null;
         } catch (RequestException $e) {
@@ -120,9 +123,13 @@ class Order {
             if (!$address) throw new Exception('Invalid or unauthorized address ID.');
     
             $placeholders = implode(',', array_fill(0, count($cart_ids), '?'));
-            $query = "SELECT c.cart_id, c.product_id, c.quantity, p.name AS product_name, p.price AS product_price, (c.quantity * p.price) AS total_price 
+            $query = "SELECT c.cart_id, c.variant_id, c.quantity, 
+                             p.product_id, p.name AS product_name, p.model AS product_model, 
+                             pv.price AS variant_price, pv.size AS variant_size, 
+                             (c.quantity * pv.price) AS total_price 
                       FROM {$this->cartTable} c 
-                      JOIN products p ON c.product_id = p.product_id 
+                      JOIN product_variants pv ON c.variant_id = pv.variant_id
+                      JOIN products p ON pv.product_id = p.product_id 
                       WHERE c.user_id = ? AND c.cart_id IN ($placeholders)";
             $stmt = $this->conn->prepare($query);
             $stmt->execute(array_merge([$user_id], $cart_ids));
@@ -140,11 +147,12 @@ class Order {
             $order_id = $this->conn->lastInsertId();
     
             foreach ($cartItems as $item) {
-                $stmt = $this->conn->prepare("INSERT INTO {$this->orderItemTable} (order_id, product_id, product_name, quantity, price) VALUES (?, ?, ?, ?, ?)");
-                $stmt->execute([$order_id, $item['product_id'], $item['product_name'], $item['quantity'], $item['product_price']]);
+                $stmt = $this->conn->prepare("INSERT INTO {$this->orderItemTable} (order_id, product_id, variant_id, product_name, quantity, price) 
+                                            VALUES (?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$order_id, $item['product_id'], $item['variant_id'], $item['product_name'] . ' - ' . $item['product_model'] . ' - ' . $item['variant_size'], $item['quantity'], $item['variant_price']]);
                 
-                $stmt = $this->conn->prepare("UPDATE products SET stock = stock - ? WHERE product_id = ?");
-                $stmt->execute([$item['quantity'], $item['product_id']]);
+                $stmt = $this->conn->prepare("UPDATE product_variants SET stock = stock - ? WHERE variant_id = ?");
+                $stmt->execute([$item['quantity'], $item['variant_id']]);
             }
     
             $stmt = $this->conn->prepare("DELETE FROM {$this->cartTable} WHERE cart_id IN ($placeholders)");
@@ -171,25 +179,26 @@ class Order {
                 return [
                     'success' => true,
                     'message' => 'Checkout successful. Please complete payment via GCash.',
-                    'payment_link' => $paymentLink
+                    'payment_link' => $paymentLink,
+                    'order_id' => $order_id
                 ];
             }
             return [
                 'success' => true,
-                'message' => 'Checkout successful. Your order has been placed with Cash on Delivery.'
+                'message' => 'Checkout successful. Your order has been placed with Cash on Delivery.',
+                'order_id' => $order_id
             ];
         } catch (Exception $e) {
             $this->conn->rollBack();
+            error_log('Checkout Error: ' . $e->getMessage());
             return ['success' => false, 'errors' => [$e->getMessage()]];
         }
     }
-    
 
     public function revertFailedOrder($order_id) {
         try {
             $this->conn->beginTransaction();
     
-            // First, get the order details and verify it exists
             $query = "SELECT o.order_id, o.status, o.payment_status 
                       FROM {$this->orderTable} o 
                       WHERE o.order_id = ?";
@@ -197,37 +206,26 @@ class Order {
             $stmt->execute([$order_id]);
             $order = $stmt->fetch(PDO::FETCH_ASSOC);
     
-            if (!$order) {
-                throw new Exception("Order with ID $order_id not found.");
-            }
+            if (!$order) throw new Exception("Order with ID $order_id not found.");
+            if ($order['status'] === 'cancelled') throw new Exception("Order $order_id is already cancelled.");
     
-            // Check if order is already cancelled to avoid duplicate processing
-            if ($order['status'] === 'cancelled') {
-                throw new Exception("Order $order_id is already cancelled.");
-            }
-    
-            // Get all items in the order
-            $query = "SELECT product_id, quantity 
+            $query = "SELECT variant_id, quantity 
                       FROM {$this->orderItemTable} 
                       WHERE order_id = ?";
             $stmt = $this->conn->prepare($query);
             $stmt->execute([$order_id]);
             $orderItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
-            if (empty($orderItems)) {
-                throw new Exception("No items found for order $order_id.");
-            }
+            if (empty($orderItems)) throw new Exception("No items found for order $order_id.");
     
-            // Return stock to products table
             foreach ($orderItems as $item) {
-                $updateStockQuery = "UPDATE products 
+                $updateStockQuery = "UPDATE product_variants 
                                     SET stock = stock + ? 
-                                    WHERE product_id = ?";
+                                    WHERE variant_id = ?";
                 $stockStmt = $this->conn->prepare($updateStockQuery);
-                $stockStmt->execute([$item['quantity'], $item['product_id']]);
+                $stockStmt->execute([$item['quantity'], $item['variant_id']]);
             }
     
-            // Update order status to cancelled and payment_status to failed (if not already set)
             $updateOrderQuery = "UPDATE {$this->orderTable} 
                                 SET status = 'cancelled',
                                     payment_status = IF(payment_status IS NULL OR payment_status != 'failed', 'failed', payment_status),
@@ -242,7 +240,6 @@ class Order {
                 'success' => true,
                 'message' => "Order $order_id cancelled and stock reverted successfully."
             ];
-    
         } catch (Exception $e) {
             $this->conn->rollBack();
             return [
@@ -263,18 +260,16 @@ class Order {
     }
 
     public function handleWebhook($eventData) {
+        error_log("Webhook received: " . $eventData, 3, '../api/webhook_debug.log');
         $event = json_decode($eventData, true);
         $eventType = $event['data']['attributes']['type'] ?? null;
         $paymentId = $event['data']['attributes']['data']['id'] ?? null;
         
-        // Debug the full event structure
-        file_put_contents('webhook_debug.log', "Event Data: $eventData\nEvent Type: $eventType\nPayment ID: $paymentId\n", FILE_APPEND);
-        
         if (!$eventType || !$paymentId) {
+            error_log("Invalid webhook payload: " . $eventData, 3, '../api/webhook_debug.log');
             return ['success' => false, 'message' => 'Invalid webhook payload - missing event type or payment ID'];
         }
         
-        // First check if we need to handle this event type
         $newPaymentStatus = match ($eventType) {
             'payment.paid' => 'paid',
             'payment.failed' => 'failed',
@@ -282,49 +277,26 @@ class Order {
         };
         
         if (!$newPaymentStatus) {
+            error_log("Unhandled event type: $eventType", 3, '../api/webhook_debug.log');
             return ['success' => false, 'message' => "Unhandled event type: $eventType"];
         }
         
-        // For payment.failed events, we need to look up the order using the payment_intent_id
-        // This is available in the event data
         $paymentIntentId = $event['data']['attributes']['data']['attributes']['payment_intent_id'] ?? null;
         
-        if (!$paymentIntentId && !$paymentId) {
-            return ['success' => false, 'message' => 'Missing both payment_intent_id and payment_id'];
-        }
-        
-        // First try to find the order by paymongo_payment_id
-        $stmt = $this->conn->prepare("SELECT * FROM {$this->orderTable} WHERE paymongo_payment_id = :payment_id");
-        $stmt->bindParam(':payment_id', $paymentId);
-        $stmt->execute();
+        $stmt = $this->conn->prepare("SELECT * FROM {$this->orderTable} WHERE paymongo_payment_id = :payment_id OR paymongo_session_id = :session_id");
+        $stmt->execute([':payment_id' => $paymentId, ':session_id' => $paymentIntentId]);
         $order = $stmt->fetch(PDO::FETCH_ASSOC);
         
-        // If not found by payment_id, try to find by paymongo_session_id (which might contain payment_intent_id)
-        if (!$order && $paymentIntentId) {
-            $stmt = $this->conn->prepare("SELECT * FROM {$this->orderTable} WHERE paymongo_session_id = :session_id");
-            $stmt->bindParam(':session_id', $paymentIntentId);
-            $stmt->execute();
-            $order = $stmt->fetch(PDO::FETCH_ASSOC);
-        }
-        
-        // If still not found, check for any order with payment_method='gcash' and status='processing'
-        // This is a fallback mechanism
         if (!$order) {
             $stmt = $this->conn->prepare("SELECT * FROM {$this->orderTable} WHERE payment_method = 'gcash' AND status = 'processing' ORDER BY created_at DESC LIMIT 1");
             $stmt->execute();
             $order = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            if (!$order) {
-                return ['success' => false, 'message' => 'Order not found for payment ID: ' . $paymentId];
-            }
+            if (!$order) return ['success' => false, 'message' => 'Order not found for payment ID: ' . $paymentId];
         }
         
-        // For failed payments, update both payment_status and status
         if ($newPaymentStatus === 'failed') {
-            // Begin a transaction for the update and stock reversion
             $this->conn->beginTransaction();
             try {
-                // Update order with payment status and payment ID, and set order status to cancelled
                 $stmt = $this->conn->prepare("UPDATE {$this->orderTable} SET payment_status = :payment_status, paymongo_payment_id = :payment_id, status = 'cancelled' WHERE order_id = :order_id");
                 $stmt->execute([
                     ':payment_status' => $newPaymentStatus, 
@@ -332,44 +304,36 @@ class Order {
                     ':order_id' => $order['order_id']
                 ]);
                 
-                // Get all items in the order to revert stock
-                $query = "SELECT product_id, quantity 
+                $query = "SELECT variant_id, quantity 
                           FROM {$this->orderItemTable} 
                           WHERE order_id = ?";
                 $stmt = $this->conn->prepare($query);
                 $stmt->execute([$order['order_id']]);
                 $orderItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 
-                if (!empty($orderItems)) {
-                    // Return stock to products table
-                    foreach ($orderItems as $item) {
-                        $updateStockQuery = "UPDATE products 
-                                         SET stock = stock + ? 
-                                         WHERE product_id = ?";
-                        $stockStmt = $this->conn->prepare($updateStockQuery);
-                        $stockStmt->execute([$item['quantity'], $item['product_id']]);
-                    }
+                foreach ($orderItems as $item) {
+                    $updateStockQuery = "UPDATE product_variants 
+                                        SET stock = stock + ? 
+                                        WHERE variant_id = ?";
+                    $stockStmt = $this->conn->prepare($updateStockQuery);
+                    $stockStmt->execute([$item['quantity'], $item['variant_id']]);
                 }
                 
                 $this->conn->commit();
-                
-                file_put_contents('webhook_debug.log', "Updated order ID: {$order['order_id']} to status: cancelled and payment_status: failed with Payment ID: $paymentId\n", FILE_APPEND);
+                error_log("Webhook payload after failed transaction (order_id={$order['order_id']}): " . $eventData, 3, '../api/webhook_debug.log');
                 return ['success' => true, 'message' => "Payment status updated to 'failed' and order cancelled with stock reverted"];
             } catch (Exception $e) {
                 $this->conn->rollBack();
-                file_put_contents('webhook_debug.log', "Failed to update order {$order['order_id']}: " . $e->getMessage() . "\n", FILE_APPEND);
                 return ['success' => false, 'message' => "Failed to update order: " . $e->getMessage()];
             }
         } else {
-            // For successful payments, just update the payment status and ID
             $stmt = $this->conn->prepare("UPDATE {$this->orderTable} SET payment_status = :payment_status, paymongo_payment_id = :payment_id WHERE order_id = :order_id");
             $stmt->execute([
                 ':payment_status' => $newPaymentStatus, 
                 ':payment_id' => $paymentId,
                 ':order_id' => $order['order_id']
             ]);
-            
-            file_put_contents('webhook_debug.log', "Updated order ID: {$order['order_id']} to payment_status: $newPaymentStatus with Payment ID: $paymentId\n", FILE_APPEND);
+            error_log("Webhook payload after paid transaction (order_id={$order['order_id']}): " . $eventData, 3, '../api/webhook_debug.log');
             return ['success' => true, 'message' => "Payment status updated to '$newPaymentStatus'"];
         }
     }
@@ -378,15 +342,12 @@ class Order {
         try {
             $this->conn->beginTransaction();
     
-            // Get current status
             $query = "SELECT status, payment_method FROM {$this->orderTable} WHERE order_id = ?";
             $stmt = $this->conn->prepare($query);
             $stmt->execute([$order_id]);
             $current_order = $stmt->fetch(PDO::FETCH_ASSOC);
     
-            if (!$current_order) {
-                throw new Exception("Order with ID $order_id not found.");
-            }
+            if (!$current_order) throw new Exception("Order with ID $order_id not found.");
     
             $current_status = $current_order['status'];
             $payment_method = $current_order['payment_method'];
@@ -398,51 +359,37 @@ class Order {
                 'failed delivery' => ['out for delivery', 'cancelled']
             ];
     
-            // Validate status transition
             if (!isset($allowed_transitions[$current_status]) || 
                 !in_array($new_status, $allowed_transitions[$current_status])) {
                 throw new Exception("Invalid status transition from '$current_status' to '$new_status'");
             }
     
-            // Determine payment_status update based on new order status
             $payment_status_update = "";
-            
             if ($new_status === 'cancelled') {
                 $payment_status_update = ", payment_status = 'failed'";
-            } elseif ($new_status === 'delivered') {
-                // For COD orders, set to paid when delivered
-                if ($payment_method === 'cod') {
-                    $payment_status_update = ", payment_status = 'paid'";
-                }
-                // For other payment methods (like gcash), we don't change payment_status
-                // as it should already be set by the payment gateway
+            } elseif ($new_status === 'delivered' && $payment_method === 'cod') {
+                $payment_status_update = ", payment_status = 'paid'";
             }
     
-            // If cancelling, revert stock
             if ($new_status === 'cancelled') {
-                // Get all items in the order
-                $query = "SELECT product_id, quantity 
+                $query = "SELECT variant_id, quantity 
                         FROM {$this->orderItemTable} 
                         WHERE order_id = ?";
                 $stmt = $this->conn->prepare($query);
                 $stmt->execute([$order_id]);
                 $orderItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 
-                if (empty($orderItems)) {
-                    throw new Exception("No items found for order $order_id.");
-                }
+                if (empty($orderItems)) throw new Exception("No items found for order $order_id.");
                 
-                // Return stock to products table
                 foreach ($orderItems as $item) {
-                    $updateStockQuery = "UPDATE products 
+                    $updateStockQuery = "UPDATE product_variants 
                                         SET stock = stock + ? 
-                                        WHERE product_id = ?";
+                                        WHERE variant_id = ?";
                     $stockStmt = $this->conn->prepare($updateStockQuery);
-                    $stockStmt->execute([$item['quantity'], $item['product_id']]);
+                    $stockStmt->execute([$item['quantity'], $item['variant_id']]);
                 }
             }
     
-            // Update status and payment_status if needed
             $query = "UPDATE {$this->orderTable} 
                     SET status = ? 
                     {$payment_status_update},
@@ -457,8 +404,7 @@ class Order {
                 'success' => true,
                 'message' => "Order $order_id status updated to '$new_status' successfully"
             ];
-    
-        } catch (Exception $e) {
+        } catch(Exception $e) {
             $this->conn->rollBack();
             return [
                 'success' => false,
@@ -466,6 +412,5 @@ class Order {
             ];
         }
     }
-    
 }
 ?>

@@ -28,18 +28,11 @@ class ProductController {
         return in_array('admin', $roles);
     }
 
-    public function getAll($page = 3, $perPage = 4) {
+    public function getAll($page = null, $perPage = null) {
         $result = $this->productModel->getProducts($page, $perPage);
         return [
             'status' => 200,
-            'body' => [
-                'success' => true,
-                'products' => $result['products'],
-                'page' => $result['page'],
-                'perPage' => $result['perPage'],
-                'totalProducts' => $result['totalProducts'],
-                'totalPages' => $result['totalPages']
-            ]
+            'body' => $result
         ];
     }
 
@@ -58,19 +51,16 @@ class ProductController {
                 'body' => ['success' => false, 'errors' => ['You do not have permission to create a product.']]
             ];
         }
-
+    
         $this->productModel->name = $data['name'] ?? '';
         $this->productModel->description = $data['description'] ?? '';
         $this->productModel->category = $data['category'] ?? '';
         $this->productModel->subcategory = $data['subcategory'] ?? null;
-        $this->productModel->price = $data['price'] ?? 0;
-        $this->productModel->stock = $data['stock'] ?? 0;
         $this->productModel->image_url = $data['image_url'] ?? '';
         $this->productModel->brand = $data['brand'] ?? '';
-        $this->productModel->size = $data['size'] ?? null;
-        $this->productModel->voltage = $data['voltage'] ?? null;
-        
-
+        $this->productModel->model = $data['model'] ?? null; // Added model
+        $this->productModel->variants = $data['variants'] ?? []; // Array of variants
+    
         $result = $this->productModel->createProduct();
         return [
             'status' => $result['success'] ? 201 : 400,
@@ -117,10 +107,9 @@ class ProductController {
     
         $result = $this->productModel->deleteProduct($id);
         
-        // You could optionally customize the status code based on the error type
         $status = $result['success'] ? 200 : 400;
         if (isset($result['errors']) && in_array('Cannot delete product with ongoing orders.', $result['errors'])) {
-            $status = 409; // Conflict status code could be more appropriate here
+            $status = 409; // Conflict status code
         }
     
         return [
@@ -129,9 +118,10 @@ class ProductController {
         ];
     }
 
-    public function search(array $filters, $page = 1, $perPage = 20) {
+    public function search(array $filters, $page = null, $perPage = null) {
         $filters = [
             'brand' => $filters['brand'] ?? null,
+            'model' => $filters['model'] ?? null,
             'category' => $filters['category'] ?? null,
             'subcategory' => $filters['subcategory'] ?? null,
             'name' => $filters['name'] ?? null
@@ -140,14 +130,85 @@ class ProductController {
         $result = $this->productModel->searchProducts($filters, $page, $perPage);
         return [
             'status' => 200,
-            'body' => [
-                'success' => true,
-                'products' => $result['products'],
-                'page' => $result['page'],
-                'perPage' => $result['perPage'],
-                'totalProducts' => $result['totalProducts'],
-                'totalPages' => $result['totalPages']
-            ]
+            'body' => $result
+        ];
+    }
+
+    public function createVariant($product_id, array $data) {
+        $userData = $this->authenticateAPI();
+        if (!$this->isAdmin($userData)) {
+            return [
+                'status' => 403,
+                'body' => ['success' => false, 'errors' => ['You do not have permission to create a variant.']]
+            ];
+        }
+        
+        if (empty($product_id)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Product ID is required.']]
+            ];
+        }
+
+        $variantData = [
+            'price' => $data['price'] ?? null,
+            'stock' => $data['stock'] ?? null,
+            'size' => $data['size'] ?? null
+        ];
+        $result = $this->productModel->createVariant((int)$product_id, $variantData);
+        return [
+            'status' => $result['success'] ? 201 : 400,
+            'body' => $result
+        ];
+    }
+
+    public function updateVariant($variant_id, array $data) {
+        $userData = $this->authenticateAPI();
+        if (!$this->isAdmin($userData)) {
+            return [
+                'status' => 403,
+                'body' => ['success' => false, 'errors' => ['You do not have permission to update a variant.']]
+            ];
+        }
+        if (empty($variant_id)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Variant ID is required.']]
+            ];
+        }
+
+        $variantData = [
+            'price' => $data['price'] ?? null,
+            'stock' => $data['stock'] ?? null,
+            'size' => $data['size'] ?? null
+        ];
+
+        $result = $this->productModel->updateVariant($variant_id, $variantData);
+        return [
+            'status' => $result['success'] ? 200 : 400,
+            'body' => $result
+        ];
+    }
+
+    public function deleteVariant($variant_id) {
+        $userData = $this->authenticateAPI();
+        if (!$this->isAdmin($userData)) {
+            return [
+                'status' => 403,
+                'body' => ['success' => false, 'errors' => ['You do not have permission to delete a variant.']]
+            ];
+        }
+        if (empty($variant_id)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Variant ID is required.']]
+            ];
+        }
+
+        $result = $this->productModel->deleteVariant($variant_id);
+        return [
+            'status' => $result['success'] ? 200 : 400,
+            'body' => $result
         ];
     }
 }

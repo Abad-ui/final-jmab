@@ -40,7 +40,7 @@ class Notification {
         $query = 'INSERT INTO ' . $this->table . ' (user_id, title, message, is_read, created_at) 
                   VALUES (:user_id, :title, :message, :is_read, NOW())';
         $stmt = $this->conn->prepare($query);
-        $this->is_read = 0; // Default to unread
+        $this->is_read = 0;
 
         $stmt->bindParam(':user_id', $this->user_id, PDO::PARAM_INT);
         $stmt->bindParam(':title', $this->title);
@@ -57,22 +57,36 @@ class Notification {
         }
     }
 
-    public function getUserNotifications($userId, $page = 1, $perPage = 20) {
+    public function getUserNotifications($userId, $page = null, $perPage = null) {
         if (!is_numeric($userId)) return ['success' => false, 'errors' => ['User ID must be numeric.']];
 
-        $offset = ($page - 1) * $perPage;
         $query = 'SELECT id, user_id, title, message, is_read, created_at 
                   FROM ' . $this->table . ' 
                   WHERE user_id = :user_id 
-                  ORDER BY created_at DESC 
-                  LIMIT :perPage OFFSET :offset';
+                  ORDER BY created_at DESC';
+        
+        if ($page !== null && $perPage !== null) {
+            $offset = ($page - 1) * $perPage;
+            $query .= ' LIMIT :perPage OFFSET :offset';
+        }
+
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':user_id', $userId, PDO::PARAM_INT);
-        $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
-        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        
+        if ($page !== null && $perPage !== null) {
+            $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
+            $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+        }
+        
         $stmt->execute();
+        $notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        return ['success' => true, 'notifications' => $stmt->fetchAll(PDO::FETCH_ASSOC), 'page' => $page, 'perPage' => $perPage];
+        $result = ['success' => true, 'notifications' => $notifications];
+        if ($page !== null && $perPage !== null) {
+            $result['page'] = $page;
+            $result['perPage'] = $perPage;
+        }
+        return $result;
     }
 
     public function getNotificationById($id) {
@@ -85,17 +99,31 @@ class Notification {
         return $notification ? ['success' => true, 'notification' => $notification] : ['success' => false, 'errors' => ['Notification not found.']];
     }
 
-    public function getAll($page = 1, $perPage = 20) {
+    public function getAll($page = null, $perPage = null) {
         try {
-            $offset = ($page - 1) * $perPage;
-            $stmt = $this->conn->prepare('SELECT id, user_id, title, message, is_read, created_at 
-                                          FROM ' . $this->table . ' 
-                                          ORDER BY created_at DESC 
-                                          LIMIT :perPage OFFSET :offset');
-            $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
-            $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+            $query = 'SELECT id, user_id, title, message, is_read, created_at 
+                      FROM ' . $this->table . ' 
+                      ORDER BY created_at DESC';
+            
+            if ($page !== null && $perPage !== null) {
+                $offset = ($page - 1) * $perPage;
+                $query .= ' LIMIT :perPage OFFSET :offset';
+            }
+
+            $stmt = $this->conn->prepare($query);
+            if ($page !== null && $perPage !== null) {
+                $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
+                $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
+            }
             $stmt->execute();
-            return ['success' => true, 'notifications' => $stmt->fetchAll(PDO::FETCH_ASSOC), 'page' => $page, 'perPage' => $perPage];
+            
+            $notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $result = ['success' => true, 'notifications' => $notifications];
+            if ($page !== null && $perPage !== null) {
+                $result['page'] = $page;
+                $result['perPage'] = $perPage;
+            }
+            return $result;
         } catch (PDOException $e) {
             error_log('Database Error: ' . $e->getMessage());
             return ['success' => false, 'errors' => ['Something went wrong. Please try again.']];

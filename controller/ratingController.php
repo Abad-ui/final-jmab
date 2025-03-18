@@ -29,35 +29,21 @@ class RatingController {
         return in_array('admin', $roles);
     }
 
-    public function getAll($page = 1, $perPage = 20) {
-        $this->authenticateAPI(); // Require authentication for all ratings
+    public function getAll($page = null, $perPage = null) {
+        $this->authenticateAPI();
         $result = $this->ratingModel->getAll($page, $perPage);
         return [
             'status' => 200,
-            'body' => [
-                'success' => true,
-                'ratings' => $result['ratings'],
-                'page' => $result['page'],
-                'perPage' => $result['perPage'],
-                'totalRatings' => $result['totalRatings'],
-                'totalPages' => $result['totalPages']
-            ]
+            'body' => $result
         ];
     }
 
-    public function getByProductId($product_id, $page = 1, $perPage = 20) {
-        $this->authenticateAPI(); // Require authentication to view product ratings
+    public function getByProductId($product_id, $page = null, $perPage = null) {
+        $this->authenticateAPI();
         $result = $this->ratingModel->getByProductId($product_id, $page, $perPage);
         return [
             'status' => 200,
-            'body' => [
-                'success' => true,
-                'ratings' => $result['ratings'],
-                'page' => $result['page'],
-                'perPage' => $result['perPage'],
-                'totalRatings' => $result['totalRatings'],
-                'totalPages' => $result['totalPages']
-            ]
+            'body' => $result
         ];
     }
 
@@ -72,7 +58,6 @@ class RatingController {
     public function getAverageRating($product_id) {
         $this->authenticateAPI();
         
-        // First check if product exists
         $productModel = new Product();
         $product = $productModel->getProductById($product_id);
         
@@ -86,7 +71,6 @@ class RatingController {
             ];
         }
         
-        // If product exists, get the average rating
         $result = $this->ratingModel->getAverageRating($product_id);
         return [
             'status' => 200,
@@ -97,12 +81,10 @@ class RatingController {
     public function create(array $data) {
         $userData = $this->authenticateAPI();
         
-        // Set model properties
         $this->ratingModel->product_id = $data['product_id'] ?? null;
-        $this->ratingModel->user_id = $userData['sub']; // Use authenticated user's ID
+        $this->ratingModel->user_id = $userData['sub'];
         $this->ratingModel->rating = $data['rating'] ?? null;
 
-        // Check if user has already rated this product
         $existingRating = $this->ratingModel->getByProductId($this->ratingModel->product_id);
         foreach ($existingRating['ratings'] as $rating) {
             if ($rating['user_id'] == $this->ratingModel->user_id) {
@@ -131,7 +113,6 @@ class RatingController {
             ];
         }
         
-        // Only allow users to update their own ratings, or admins
         if ($ratingInfo['user_id'] != $userData['sub'] && !$this->isAdmin($userData)) {
             return [
                 'status' => 403,
@@ -157,7 +138,6 @@ class RatingController {
             ];
         }
         
-        // Only allow users to delete their own ratings, or admins
         if ($ratingInfo['user_id'] != $userData['sub'] && !$this->isAdmin($userData)) {
             return [
                 'status' => 403,
