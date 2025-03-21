@@ -52,7 +52,7 @@ class User {
             $mail->Username = "profakerblah@gmail.com";
             $mail->Password = "vypjkatteatpnjbd";
 
-            $mail->setFrom("profakerblah@gmail.com", "Your App Name");
+            $mail->setFrom("profakerblah@gmail.com", "JMAB");
             $mail->addAddress($toEmail, $toName);
 
             $mail->isHTML(true);
