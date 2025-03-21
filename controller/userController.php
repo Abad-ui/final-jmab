@@ -75,6 +75,39 @@ class UserController {
             ];
     }
 
+    public function verifyEmail(array $data) {
+        $email = $data['email'] ?? '';
+        $code = $data['code'] ?? '';
+    
+        if (empty($email) || empty($code)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Email and verification code are required.']]
+            ];
+        }
+    
+        $result = $this->userModel->verifyEmail($email, $code);
+        return $result['success']
+            ? ['status' => 200, 'body' => ['success' => true, 'message' => $result['message']]]
+            : ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
+    }
+
+    public function resend(array $data) {
+        $email = $data['email'] ?? '';
+
+        if (empty($email)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Email is required.']]
+            ];
+        }
+
+        $result = $this->userModel->resendVerificationCode($email);
+        return $result['success']
+            ? ['status' => 200, 'body' => ['success' => true, 'message' => $result['message']]]
+            : ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
+    }
+
     public function getAll() {
         $this->authenticateAPI();
         $users = $this->userModel->getUsers();

@@ -45,6 +45,7 @@ class ComposerStaticInit1eac4da2bf951e0f888b737360b96aae
             'Psr\\Http\\Client\\' => 16,
             'Phrity\\Util\\' => 12,
             'Phrity\\Net\\' => 11,
+            'PHPMailer\\PHPMailer\\' => 20,
         ),
         'G' => 
         array (
@@ -135,6 +136,10 @@ class ComposerStaticInit1eac4da2bf951e0f888b737360b96aae
         'Phrity\\Net\\' => 
         array (
             0 => __DIR__ . '/..' . '/phrity/net-uri/src',
+        ),
+        'PHPMailer\\PHPMailer\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/phpmailer/phpmailer/src',
         ),
         'GuzzleHttp\\Psr7\\' => 
         array (

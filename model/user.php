@@ -3,9 +3,14 @@ require_once '../config/database.php';
 require_once '../vendor/autoload.php';
 require_once '../config/JWTHandler.php';
 
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\SMTP;
+use PHPMailer\PHPMailer\Exception;
+
 class User {
     public $conn;
     private $table = 'users';
+    private $pendingTable = 'pending_users';
 
     public $id, $first_name, $last_name, $email, $password, $roles, $phone_number, $profile_picture, $gender, $birthday;
 
@@ -24,7 +29,9 @@ class User {
     }
 
     private function isEmailExists($email, $excludeUserId = null) {
-        $query = 'SELECT id FROM ' . $this->table . ' WHERE email = :email' . ($excludeUserId !== null ? ' AND id != :excludeUserId' : '');
+        // Check both users and pending_users tables
+        $query = 'SELECT id FROM ' . $this->table . ' WHERE email = :email' . ($excludeUserId !== null ? ' AND id != :excludeUserId' : '') .
+                 ' UNION SELECT id FROM ' . $this->pendingTable . ' WHERE email = :email';
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':email', $email);
         if ($excludeUserId !== null) $stmt->bindParam(':excludeUserId', $excludeUserId, PDO::PARAM_INT);
@@ -32,27 +39,163 @@ class User {
         return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
     }
 
+    private function sendEmail($toEmail, $toName, $subject, $message) {
+        $mail = new PHPMailer(true);
+
+        try {
+            $mail->isSMTP();
+            $mail->SMTPAuth = true;
+            $mail->Host = 'smtp.gmail.com';
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+            $mail->Port = 587;
+
+            $mail->Username = "profakerblah@gmail.com";
+            $mail->Password = "vypjkatteatpnjbd";
+
+            $mail->setFrom("profakerblah@gmail.com", "Your App Name");
+            $mail->addAddress($toEmail, $toName);
+
+            $mail->isHTML(true);
+            $mail->Subject = $subject;
+            $mail->Body = $message;
+            $mail->AltBody = strip_tags($message);
+
+            $mail->send();
+            return ['success' => true, 'message' => 'Email sent successfully.'];
+        } catch (Exception $e) {
+            error_log('PHPMailer Error: ' . $e->getMessage());
+            return ['success' => false, 'errors' => ['Failed to send email: ' . $mail->ErrorInfo]];
+        }
+    }
+
     public function register() {
         $errors = $this->validateInput();
         if (!empty($errors)) return ['success' => false, 'errors' => $errors];
 
-        if ($this->isEmailExists($this->email)) return ['success' => false, 'errors' => ['Email is already registered.']];
+        if ($this->isEmailExists($this->email)) return ['success' => false, 'errors' => ['Email is already registered or pending verification.']];
 
         $hashedPassword = password_hash($this->password, PASSWORD_BCRYPT);
         $this->roles = $this->roles ?: 'customer';
+        $verificationCode = sprintf("%06d", rand(0, 999999)); // Generate 6-digit code
 
-        $query = 'INSERT INTO ' . $this->table . ' (first_name, last_name, email, password, roles, created_at) VALUES (:first_name, :last_name, :email, :password, :roles, NOW())';
+        $query = 'INSERT INTO ' . $this->pendingTable . ' (first_name, last_name, email, password, roles, verification_code) 
+                  VALUES (:first_name, :last_name, :email, :password, :roles, :verification_code)';
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':first_name', $this->first_name);
         $stmt->bindParam(':last_name', $this->last_name);
         $stmt->bindParam(':email', $this->email);
         $stmt->bindParam(':password', $hashedPassword);
         $stmt->bindParam(':roles', $this->roles);
+        $stmt->bindParam(':verification_code', $verificationCode);
 
         try {
-            return $stmt->execute() 
-                ? ['success' => true, 'message' => 'User registered successfully.'] 
-                : ['success' => false, 'errors' => ['Unknown error occurred.']];
+            if ($stmt->execute()) {
+                $fullName = $this->first_name . ' ' . $this->last_name;
+                $emailSubject = "Verify Your Email Address";
+                $emailBody = "<h2>Hello, $fullName!</h2>
+                              <p>Please use the following 6-digit code to verify your email address:</p>
+                              <h3>$verificationCode</h3>
+                              <p>Enter this code in the verification form to complete your registration. This code expires in 15 Minutes.</p>
+                              <p>If you didn't request this, please ignore this email.</p>
+                              <p>Best regards,<br>JMAB</p>";
+
+                $emailResult = $this->sendEmail($this->email, $fullName, $emailSubject, $emailBody);
+
+                $response = ['success' => true, 'message' => 'Registration pending. Please verify your email.'];
+                if (!$emailResult['success']) {
+                    $response['warnings'] = [$emailResult['errors'][0]];
+                }
+                return $response;
+            }
+            return ['success' => false, 'errors' => ['Unknown error occurred.']];
+        } catch (PDOException $e) {
+            error_log('Database Error: ' . $e->getMessage());
+            return ['success' => false, 'errors' => ['Something went wrong. Please try again.']];
+        }
+    }
+
+    public function verifyEmail($email, $code) {
+        $query = 'SELECT * FROM ' . $this->pendingTable . ' WHERE email = :email AND verification_code = :code AND expires_at > NOW()';
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':email', $email);
+        $stmt->bindParam(':code', $code);
+        $stmt->execute();
+        $pendingUser = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$pendingUser) {
+            return ['success' => false, 'errors' => ['Invalid email or code, or code has expired.']];
+        }
+
+        // Move user to the main users table
+        $insertQuery = 'INSERT INTO ' . $this->table . ' (first_name, last_name, email, password, roles, created_at) 
+                        VALUES (:first_name, :last_name, :email, :password, :roles, NOW())';
+        $insertStmt = $this->conn->prepare($insertQuery);
+        $insertStmt->bindParam(':first_name', $pendingUser['first_name']);
+        $insertStmt->bindParam(':last_name', $pendingUser['last_name']);
+        $insertStmt->bindParam(':email', $pendingUser['email']);
+        $insertStmt->bindParam(':password', $pendingUser['password']);
+        $insertStmt->bindParam(':roles', $pendingUser['roles']);
+
+        try {
+            $this->conn->beginTransaction();
+
+            if ($insertStmt->execute()) {
+                // Delete from pending_users after successful insertion
+                $deleteQuery = 'DELETE FROM ' . $this->pendingTable . ' WHERE email = :email';
+                $deleteStmt = $this->conn->prepare($deleteQuery);
+                $deleteStmt->bindParam(':email', $email);
+                $deleteStmt->execute();
+
+                $this->conn->commit();
+                return ['success' => true, 'message' => 'Email verified successfully. You can now log in.'];
+            } else {
+                $this->conn->rollBack();
+                return ['success' => false, 'errors' => ['Failed to complete registration.']];
+            }
+        } catch (PDOException $e) {
+            $this->conn->rollBack();
+            error_log('Database Error: ' . $e->getMessage());
+            return ['success' => false, 'errors' => ['Something went wrong during verification.']];
+        }
+    }
+
+    public function resendVerificationCode($email) {
+        $query = 'SELECT first_name, last_name FROM ' . $this->pendingTable . ' WHERE email = :email AND expires_at > NOW()';
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':email', $email);
+        $stmt->execute();
+        $pendingUser = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$pendingUser) {
+            return ['success' => false, 'errors' => ['No pending registration found for this email, or it has expired.']];
+        }
+
+        $newCode = sprintf("%06d", rand(0, 999999));
+        $updateQuery = 'UPDATE ' . $this->pendingTable . ' SET verification_code = :code, expires_at = NOW() + INTERVAL 1 HOUR WHERE email = :email';
+        $updateStmt = $this->conn->prepare($updateQuery);
+        $updateStmt->bindParam(':code', $newCode);
+        $updateStmt->bindParam(':email', $email);
+
+        try {
+            if ($updateStmt->execute()) {
+                $fullName = $pendingUser['first_name'] . ' ' . $pendingUser['last_name'];
+                $emailSubject = "New Verification Code";
+                $emailBody = "<h2>Hello, $fullName!</h2>
+                              <p>We’ve generated a new 6-digit code for you to verify your email address:</p>
+                              <h3>$newCode</h3>
+                              <p>Enter this code in the verification form to complete your registration. This code expires in 15 Minutes.</p>
+                              <p>If you didn’t request this, please ignore this email.</p>
+                              <p>Best regards,<br>JMAB</p>";
+
+                $emailResult = $this->sendEmail($email, $fullName, $emailSubject, $emailBody);
+
+                $response = ['success' => true, 'message' => 'A new verification code has been sent to your email.'];
+                if (!$emailResult['success']) {
+                    $response['warnings'] = [$emailResult['errors'][0]];
+                }
+                return $response;
+            }
+            return ['success' => false, 'errors' => ['Failed to generate new code.']];
         } catch (PDOException $e) {
             error_log('Database Error: ' . $e->getMessage());
             return ['success' => false, 'errors' => ['Something went wrong. Please try again.']];

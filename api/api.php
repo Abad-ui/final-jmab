@@ -65,7 +65,7 @@ if (in_array('page', $path) && in_array('perPage', $path)) {
 
 if (isset($path[1])) {
     if (in_array($path[1], ['register', 'login', 'search', 'user', 'conversation', 
-                           'read', 'status', 'order', 'product', 'average', 'variants', 'paymongo', 'refund', 'admins'])) {
+                           'read', 'status', 'order', 'product', 'average', 'variants', 'paymongo', 'refund', 'admins', 'verify', 'resend'])) {
         $subResource = $path[1];
         $resourceId = $path[2] ?? null;
     } elseif (!in_array($path[1], ['page', 'perPage'])) {
@@ -113,6 +113,8 @@ try {
             $data = $inputData ?? [];
             if ($resource === 'users' && $subResource === 'register') $response = $controller->register($data);
             elseif ($resource === 'users' && $subResource === 'login') $response = $controller->login($data);
+            elseif ($resource === 'users' && $subResource === 'verify') $response = $controller->verifyEmail($data);
+            elseif ($resource === 'users' && $subResource === 'resend') $response = $controller->resend($data);
             elseif ($resource === 'orders' && $resourceId !== null && $subResource === null) $response = $controller->create($resourceId, $data);
             elseif ($resource === 'orders' && $subResource === 'refund' && $resourceId !== null) $response = $controller->refund($resourceId, $data);
             elseif ($resource === 'products' && $subResource === null && $resourceId === null) $response = $controller->create($data);
