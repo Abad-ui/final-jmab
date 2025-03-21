@@ -134,6 +134,29 @@ class ProductController {
         ];
     }
 
+    public function getVariants(){
+        $this->authenticateAPI();
+
+        $variants = $this->productModel->getAllVariant();
+
+        return $variants
+
+        ? ['status'=> 200, 'body' => ['success' => true, 'variants' => $variants]]
+        : ['status'=> 404, 'body' => ['success' => false, 'errors' => ['No variants found.']]];
+    }
+
+    public function getVariantById($variant_id){
+        $this->authenticateAPI();
+        
+        $variant = $this->productModel->getVariantById($variant_id);
+
+        return $variant
+
+        ? ['status' => 200, 'body' => ['success' => true, 'variant' => $variant]]
+        : ['status' => 404, 'body' => ['success' => false, 'errors' => ['Variant not found']]];
+
+    }
+
     public function createVariant($product_id, array $data) {
         $userData = $this->authenticateAPI();
         if (!$this->isAdmin($userData)) {

@@ -120,7 +120,7 @@ class OrderController {
             ];
         }
 
-        $webhookSecret = "whsk_is94vCtPo1zRaoWJDXLSU7jM";
+        $webhookSecret = "whsk_xZ82GHDCgoFP9Tfbw2AR1kVB";
         if (!$this->orderModel->verifyWebhookSignature($requestBody, $signatureHeader, $webhookSecret)) {
             return [
                 'status' => 401,
@@ -139,12 +139,12 @@ class OrderController {
 
     public function update($id, array $data) {
         $userData = $this->authenticateAPI();
-        if (!$this->isAdmin($userData)) {
+        /*if (!$this->isAdmin($userData)) {
             return [
                 'status' => 403,
                 'body' => ['success' => false, 'errors' => ['Only admins can update order status.']]
             ];
-        }
+        }*/
         
         if (empty($id) || !is_numeric($id)) {
             return [
@@ -183,6 +183,47 @@ class OrderController {
         return [
             'status' => 501,
             'body' => ['success' => false, 'errors' => ['Order deletion not implemented.']]
+        ];
+    }
+
+    public function refund($id, array $data) {
+        $userData = $this->authenticateAPI();
+        if (!$this->isAdmin($userData)) {
+            return [
+                'status' => 403,
+                'body' => ['success' => false, 'errors' => ['Only admins can refund orders.']]
+            ];
+        }
+    
+        if (empty($id) || !is_numeric($id)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Valid Order ID is required in the URL.']]
+            ];
+        }
+    
+        // Valid Paymongo refund reasons
+        $validReasons = ['duplicate', 'fraudulent', 'requested_by_customer', 'others'];
+        $reason = isset($data['reason']) ? strtolower(trim($data['reason'])) : 'requested_by_customer';
+    
+        // Map common user inputs to valid Paymongo reasons
+        $reasonMap = [
+            'customer requested refund' => 'requested_by_customer',
+            'requested by customer' => 'requested_by_customer',
+            'duplicate payment' => 'duplicate',
+            'fraud' => 'fraudulent',
+            'other' => 'others'
+        ];
+        
+        // Use mapped reason if it exists, otherwise fallback to input or default
+        $reason = $reasonMap[$reason] ?? (in_array($reason, $validReasons) ? $reason : 'requested_by_customer');
+    
+        $result = $this->orderModel->refundOrder($id, $reason);
+        return [
+            'status' => $result['success'] ? 200 : 400,
+            'body' => $result['success']
+                ? ['success' => true, 'message' => $result['message'], 'refund_id' => $result['refund_id'] ?? null]
+                : ['success' => false, 'errors' => [$result['message']]]
         ];
     }
 }

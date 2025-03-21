@@ -92,6 +92,14 @@ class UserController {
             : ['status' => 404, 'body' => ['success' => false, 'errors' => ['User not found.']]];
     }
 
+    public function getAdmins(){
+        $this->authenticateAPI();
+        $admins = $this->userModel->getAdmins();
+        return $admins
+            ? ['status' => 200, 'body' => ['success' => true, 'admins' => $admins]]
+            : ['status' => 404, 'body' => ['success' => false, 'errors' => ["Admins not found."]]];
+        }
+
     public function update($id, array $data) {
         $this->authenticateAPI();
         if (empty($id)) {

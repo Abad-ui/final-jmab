@@ -137,6 +137,19 @@ class User {
         return $user;
     }
 
+    public function getAdmins() {
+        $query = 'SELECT id, first_name, last_name, roles FROM ' . $this->table . ' WHERE roles = :role';
+        $stmt = $this->conn->prepare($query);
+
+        $role = 'admin';
+        $stmt->bindParam(':role', $role, PDO::PARAM_STR);
+        $stmt->execute();
+
+        $admins = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return $admins;
+    }
+
     public function update($id, $data) {
         $userExists = $this->getUserById($id);
         if (!$userExists) return ['success' => false, 'errors' => ['User not found.']];

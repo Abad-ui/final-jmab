@@ -102,6 +102,10 @@ class Product {
         $stmt->bindParam(':subcategory', $this->subcategory);
         $stmt->bindParam(':image_url', $this->image_url);
         $stmt->bindParam(':brand', $this->brand);
+
+        if (empty($this->model)) {
+            $this->model = $this->name;
+        }
         $stmt->bindParam(':model', $this->model);
 
         try {
@@ -133,6 +137,22 @@ class Product {
             error_log('Database Error: ' . $e->getMessage());
             return ['success' => false, 'errors' => ['Something went wrong. Please try again.']];
         }
+    }
+
+    public function getAllVariant(){
+        $query = 'SELECT * FROM ' . $this->variantTable;
+        $stmt = $this->conn->prepare($query);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function getVariantById($variant_id){
+        $query = 'SELECT * FROM ' . $this->variantTable . ' WHERE variant_id = :variant_id';
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindValue(':variant_id', $variant_id);
+        $stmt->execute();
+
+        return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
     public function createVariant($product_id, $variantData) {

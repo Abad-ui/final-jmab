@@ -38,14 +38,15 @@ $endpoint = isset($_GET['endpoint'])
 $endpoint = trim($endpoint, '/');
 $endpoint = strtok($endpoint, '?');
 $path = explode('/', $endpoint);
+        
+$endpointParts = explode('/', trim($endpoint, '/'));
+$resource = $endpointParts[0] ?? null;
+$resourceId = $endpointParts[1] ?? null;
+$subResource = $endpointParts[2] ?? null;
+        
+$page = null;
+$perPage = null;
 
-$resource = $path[0] ?? '';
-$subResource = null;
-$resourceId = null;
-$page = null;    // Changed from having default values
-$perPage = null; // Changed from having default values
-
-// Only parse pagination if explicitly included in path
 if (in_array('page', $path) && in_array('perPage', $path)) {
     $pageIndex = array_search('page', $path);
     $perPageIndex = array_search('perPage', $path);
@@ -58,22 +59,20 @@ if (in_array('page', $path) && in_array('perPage', $path)) {
     $pageIndex = array_search('page', $path);
     if ($pageIndex !== false && isset($path[$pageIndex + 1])) {
         $page = max(1, (int)$path[$pageIndex + 1]);
-        $perPage = 20; // Default perPage if only page is specified
+        $perPage = 20;
     }
 }
 
-// Determine subResource and resourceId
 if (isset($path[1])) {
     if (in_array($path[1], ['register', 'login', 'search', 'user', 'conversation', 
-                           'read', 'status', 'order', 'product', 'average', 'variants', 'paymongo'])) {
+                           'read', 'status', 'order', 'product', 'average', 'variants', 'paymongo', 'refund', 'admins'])) {
         $subResource = $path[1];
         $resourceId = $path[2] ?? null;
-    } elseif (!in_array($path[1], ['page', 'perPage'])) {  // Skip pagination segments
+    } elseif (!in_array($path[1], ['page', 'perPage'])) {
         $resourceId = $path[1];
     }
 }
 
-// Specific overrides for complex sub-resources
 if ($resource === 'messages' && $subResource === 'conversation' && 
     isset($path[2]) && isset($path[3])) {
     $userId = $path[2];
@@ -114,7 +113,8 @@ try {
             $data = $inputData ?? [];
             if ($resource === 'users' && $subResource === 'register') $response = $controller->register($data);
             elseif ($resource === 'users' && $subResource === 'login') $response = $controller->login($data);
-            elseif ($resource === 'orders' && $resourceId !== null) $response = $controller->create($resourceId, $data);
+            elseif ($resource === 'orders' && $resourceId !== null && $subResource === null) $response = $controller->create($resourceId, $data);
+            elseif ($resource === 'orders' && $subResource === 'refund' && $resourceId !== null) $response = $controller->refund($resourceId, $data);
             elseif ($resource === 'products' && $subResource === null && $resourceId === null) $response = $controller->create($data);
             elseif ($resource === 'carts' && $resourceId === null) $response = $controller->create($data);
             elseif ($resource === 'webhook' && $subResource === 'paymongo') $response = $controller->handleWebhook();
@@ -151,6 +151,12 @@ try {
                 $response = $controller->getByProductId($resourceId, $page, $perPage);
             } elseif ($resource === 'ratings' && $subResource === 'average' && $resourceId !== null) {
                 $response = $controller->getAverageRating($resourceId);
+            } elseif ($resource === 'products' && $subResource === 'variants' && $resourceId === null) {
+                $response = $controller->getVariants();
+            } elseif ($resource === 'products' && $subResource === 'variants' && $resourceId !== null) {
+                $response = $controller->getVariantById($resourceId);
+            } elseif ($resource === 'users' && $subResource === 'admins' && $resourceId === null) {
+                $response = $controller->getAdmins();
             } elseif ($resourceId === null && $subResource === null) {
                 $response = $controller->getAll($page, $perPage);
             } elseif ($resourceId !== null && $subResource === null) {
@@ -206,7 +212,7 @@ try {
             }
             break;
 
-        default:
+            default:
             throw new Exception('Method not allowed.', 405);
     }
 

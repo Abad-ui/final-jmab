@@ -34,11 +34,19 @@ class CartController {
     public function getById($userId) {
         $this->authenticateAPI();
         $cartInfo = $this->cartModel->getCartByUserId($userId);
-        
+    
+        // Corrected query with a named placeholder
+        $query = 'SELECT first_name FROM users WHERE id = :id';
+        $stmt = $this->cartModel->conn->prepare($query);
+        $stmt->bindParam(':id', $userId, PDO::PARAM_INT);
+        $stmt->execute();
+        $first_name = $stmt->fetchColumn();
+    
         return $cartInfo 
             ? ['status' => 200, 'body' => ['success' => true, 'cart' => $cartInfo]] 
-            : ['status' => 404, 'body' => ['success' => false, 'errors' => ['Cart not found.']]];
+            : ['status' => 404, 'body' => ['success' => false, 'errors' => ['There are no carts for ' . $first_name]]];
     }
+    
 
     public function create(array $data) {
         $userData = $this->authenticateAPI();

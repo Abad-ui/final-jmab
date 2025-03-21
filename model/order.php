@@ -21,13 +21,17 @@ class Order {
                          SUM(oi.quantity) AS total_quantity, 
                          COUNT(DISTINCT o.user_id) AS total_customers, 
                          oi.product_id AS product_id,
-                         GROUP_CONCAT(DISTINCT CONCAT(p.name, " - ", p.model, " - ", pv.size, " (x", oi.quantity, ")") ORDER BY p.name ASC SEPARATOR ", ") AS product_details
+                         GROUP_CONCAT(DISTINCT CONCAT(
+                             p.name, " - ", 
+                             COALESCE(p.model, p.name), " - ", 
+                             pv.size, " (x", oi.quantity, ")"
+                         ) ORDER BY p.name ASC SEPARATOR ", ") AS product_details
                   FROM ' . $this->orderTable . ' o
                   LEFT JOIN users u ON o.user_id = u.id
                   LEFT JOIN ' . $this->orderItemTable . ' oi ON o.order_id = oi.order_id
                   LEFT JOIN product_variants pv ON oi.variant_id = pv.variant_id
                   LEFT JOIN products p ON pv.product_id = p.product_id
-                  GROUP BY o.order_id';
+                  GROUP BY o.order_id'; 
     
         $stmt = $this->conn->prepare($query);
         $stmt->execute();
@@ -264,53 +268,55 @@ class Order {
         $event = json_decode($eventData, true);
         $eventType = $event['data']['attributes']['type'] ?? null;
         $paymentId = $event['data']['attributes']['data']['id'] ?? null;
-        
+    
         if (!$eventType || !$paymentId) {
             error_log("Invalid webhook payload: " . $eventData, 3, '../api/webhook_debug.log');
             return ['success' => false, 'message' => 'Invalid webhook payload - missing event type or payment ID'];
         }
-        
+    
         $newPaymentStatus = match ($eventType) {
             'payment.paid' => 'paid',
             'payment.failed' => 'failed',
+            'payment.refunded' => 'refunded',
+            'payment.refund.updated' => 'refunded',
             default => null
         };
-        
+    
         if (!$newPaymentStatus) {
             error_log("Unhandled event type: $eventType", 3, '../api/webhook_debug.log');
             return ['success' => false, 'message' => "Unhandled event type: $eventType"];
         }
-        
+    
         $paymentIntentId = $event['data']['attributes']['data']['attributes']['payment_intent_id'] ?? null;
-        
+    
         $stmt = $this->conn->prepare("SELECT * FROM {$this->orderTable} WHERE paymongo_payment_id = :payment_id OR paymongo_session_id = :session_id");
         $stmt->execute([':payment_id' => $paymentId, ':session_id' => $paymentIntentId]);
         $order = $stmt->fetch(PDO::FETCH_ASSOC);
-        
+    
         if (!$order) {
             $stmt = $this->conn->prepare("SELECT * FROM {$this->orderTable} WHERE payment_method = 'gcash' AND status = 'processing' ORDER BY created_at DESC LIMIT 1");
             $stmt->execute();
             $order = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$order) return ['success' => false, 'message' => 'Order not found for payment ID: ' . $paymentId];
         }
-        
+    
         if ($newPaymentStatus === 'failed') {
             $this->conn->beginTransaction();
             try {
                 $stmt = $this->conn->prepare("UPDATE {$this->orderTable} SET payment_status = :payment_status, paymongo_payment_id = :payment_id, status = 'cancelled' WHERE order_id = :order_id");
                 $stmt->execute([
-                    ':payment_status' => $newPaymentStatus, 
+                    ':payment_status' => $newPaymentStatus,
                     ':payment_id' => $paymentId,
                     ':order_id' => $order['order_id']
                 ]);
-                
+    
                 $query = "SELECT variant_id, quantity 
                           FROM {$this->orderItemTable} 
                           WHERE order_id = ?";
                 $stmt = $this->conn->prepare($query);
                 $stmt->execute([$order['order_id']]);
                 $orderItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                
+    
                 foreach ($orderItems as $item) {
                     $updateStockQuery = "UPDATE product_variants 
                                         SET stock = stock + ? 
@@ -318,7 +324,7 @@ class Order {
                     $stockStmt = $this->conn->prepare($updateStockQuery);
                     $stockStmt->execute([$item['quantity'], $item['variant_id']]);
                 }
-                
+    
                 $this->conn->commit();
                 error_log("Webhook payload after failed transaction (order_id={$order['order_id']}): " . $eventData, 3, '../api/webhook_debug.log');
                 return ['success' => true, 'message' => "Payment status updated to 'failed' and order cancelled with stock reverted"];
@@ -326,10 +332,52 @@ class Order {
                 $this->conn->rollBack();
                 return ['success' => false, 'message' => "Failed to update order: " . $e->getMessage()];
             }
+        } elseif ($newPaymentStatus === 'refunded') {
+            $this->conn->beginTransaction();
+            try {
+                // Determine new order status based on current status
+                $newOrderStatus = in_array($order['status'], ['out for delivery', 'delivered', 'failed delivery']) 
+                    ? $order['status'] // Keep fulfillment status if already in transit or delivered
+                    : 'cancelled';     // Cancel if still pending or processing
+    
+                $stmt = $this->conn->prepare("UPDATE {$this->orderTable} SET payment_status = :payment_status, paymongo_payment_id = :payment_id, status = :status WHERE order_id = :order_id");
+                $stmt->execute([
+                    ':payment_status' => $newPaymentStatus, // 'refunded'
+                    ':payment_id' => $paymentId,
+                    ':status' => $newOrderStatus,
+                    ':order_id' => $order['order_id']
+                ]);
+    
+                // Revert stock only if order is cancelled (pre-fulfillment refund)
+                if ($newOrderStatus === 'cancelled') {
+                    $query = "SELECT variant_id, quantity 
+                              FROM {$this->orderItemTable} 
+                              WHERE order_id = ?";
+                    $stmt = $this->conn->prepare($query);
+                    $stmt->execute([$order['order_id']]);
+                    $orderItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+                    foreach ($orderItems as $item) {
+                        $updateStockQuery = "UPDATE product_variants 
+                                            SET stock = stock + ? 
+                                            WHERE variant_id = ?";
+                        $stockStmt = $this->conn->prepare($updateStockQuery);
+                        $stockStmt->execute([$item['quantity'], $item['variant_id']]);
+                    }
+                }
+    
+                $this->conn->commit();
+                error_log("Webhook payload after refund transaction (order_id={$order['order_id']}): " . $eventData, 3, '../api/webhook_debug.log');
+                return ['success' => true, 'message' => "Payment status updated to 'refunded' and order status set to '$newOrderStatus'"];
+            } catch (Exception $e) {
+                $this->conn->rollBack();
+                return ['success' => false, 'message' => "Failed to process refund: " . $e->getMessage()];
+            }
         } else {
+            // Handle 'paid' status
             $stmt = $this->conn->prepare("UPDATE {$this->orderTable} SET payment_status = :payment_status, paymongo_payment_id = :payment_id WHERE order_id = :order_id");
             $stmt->execute([
-                ':payment_status' => $newPaymentStatus, 
+                ':payment_status' => $newPaymentStatus,
                 ':payment_id' => $paymentId,
                 ':order_id' => $order['order_id']
             ]);
@@ -412,5 +460,92 @@ class Order {
             ];
         }
     }
+
+    public function refundOrder($order_id, $reason = "requested_by_customer") {
+        try {
+            $this->conn->beginTransaction();
+    
+            // Fetch order details
+            $query = "SELECT paymongo_payment_id, payment_status, status, total_price 
+                      FROM {$this->orderTable} 
+                      WHERE order_id = ?";
+            $stmt = $this->conn->prepare($query);
+            $stmt->execute([$order_id]);
+            $order = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+            if (!$order) {
+                throw new Exception("Order with ID $order_id not found.");
+            }
+    
+            if (empty($order['paymongo_payment_id'])) {
+                throw new Exception("No Paymongo payment ID found for order $order_id. Refund must be processed manually.");
+            }
+    
+            if ($order['payment_status'] !== 'paid') {
+                throw new Exception("Order $order_id cannot be refunded. Current payment status: {$order['payment_status']}");
+            }
+    
+            // Paymongo Refund API details
+            $api_url = "https://api.paymongo.com/v1/refunds";
+            $api_key = "sk_test_upzoTe7kRXHL9TGogLFjuaji"; // Replace with your secret key
+            $client = new Client();
+    
+            $refund_data = [
+                'data' => [
+                    'attributes' => [
+                        'amount' => (int)($order['total_price'] * 100), // Convert to centavos
+                        'payment_id' => $order['paymongo_payment_id'],
+                        'reason' => $reason, // Use the validated reason
+                        'notes' => "Refund for order #$order_id"
+                    ]
+                ]
+            ];
+    
+            // Log the refund request for debugging
+            error_log("Refund request for order $order_id with reason: $reason");
+    
+            // Send refund request to Paymongo
+            $response = $client->post($api_url, [
+                'headers' => [
+                    'Authorization' => 'Basic ' . base64_encode($api_key . ':'),
+                    'Content-Type' => 'application/json',
+                    'Accept' => 'application/json'
+                ],
+                'json' => $refund_data
+            ]);
+    
+            $refund_response = json_decode($response->getBody()->getContents(), true);
+            $refund_id = $refund_response['data']['id'] ?? null;
+    
+            if (!$refund_id) {
+                throw new Exception("Failed to initiate refund with Paymongo.");
+            }
+    
+            // ... (rest of the method remains unchanged)
+    
+            $this->conn->commit();
+    
+            return [
+                'success' => true,
+                'message' => "Order $order_id refunded successfully via Paymongo. Refund ID: $refund_id",
+                'refund_id' => $refund_id
+            ];
+        } catch (RequestException $e) {
+            $this->conn->rollBack();
+            $error_message = $e->hasResponse() ? $e->getResponse()->getBody()->getContents() : $e->getMessage();
+            error_log("Refund error for order $order_id: $error_message");
+            return [
+                'success' => false,
+                'message' => "Refund failed: " . $error_message
+            ];
+        } catch (Exception $e) {
+            $this->conn->rollBack();
+            return [
+                'success' => false,
+                'message' => "Refund failed: " . $e->getMessage()
+            ];
+        }
+    }
+    
 }
 ?>
