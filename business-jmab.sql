@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Mar 21, 2025 at 03:18 PM
+-- Generation Time: Mar 22, 2025 at 05:40 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -153,7 +153,7 @@ CREATE TABLE `pending_users` (
 
 CREATE TABLE `productratings` (
   `rating_id` int(11) NOT NULL,
-  `product_id` int(11) NOT NULL,
+  `variant_id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
   `rating` int(11) DEFAULT NULL CHECK (`rating` between 1 and 5),
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
@@ -360,8 +360,7 @@ ALTER TABLE `pending_users`
 --
 ALTER TABLE `productratings`
   ADD PRIMARY KEY (`rating_id`),
-  ADD KEY `product_id` (`product_id`),
-  ADD KEY `user_id` (`user_id`);
+  ADD KEY `variant_id` (`variant_id`);
 
 --
 -- Indexes for table `products`
@@ -517,8 +516,7 @@ ALTER TABLE `order_receipts`
 -- Constraints for table `productratings`
 --
 ALTER TABLE `productratings`
-  ADD CONSTRAINT `productratings_ibfk_1` FOREIGN KEY (`product_id`) REFERENCES `products` (`product_id`),
-  ADD CONSTRAINT `productratings_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`);
+  ADD CONSTRAINT `productratings_ibfk_1` FOREIGN KEY (`variant_id`) REFERENCES `product_variants` (`variant_id`);
 
 --
 -- Constraints for table `product_variants`
