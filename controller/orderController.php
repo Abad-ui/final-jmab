@@ -138,14 +138,8 @@ class OrderController {
     }
 
     public function update($id, array $data) {
-        $userData = $this->authenticateAPI();
-        /*if (!$this->isAdmin($userData)) {
-            return [
-                'status' => 403,
-                'body' => ['success' => false, 'errors' => ['Only admins can update order status.']]
-            ];
-        }*/
-        
+        $this->authenticateAPI();
+       
         if (empty($id) || !is_numeric($id)) {
             return [
                 'status' => 400,

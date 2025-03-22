@@ -65,7 +65,7 @@ if (in_array('page', $path) && in_array('perPage', $path)) {
 
 if (isset($path[1])) {
     if (in_array($path[1], ['register', 'login', 'search', 'user', 'conversation', 
-                           'read', 'status', 'order', 'variant', 'average', 'variants', 'paymongo', 'refund', 'admins', 'verify', 'resend', 'hasRated'])) {
+                           'read', 'status', 'order', 'variant', 'average', 'variants', 'paymongo', 'refund', 'admins', 'verify', 'resend', 'hasRated', 'forgotPassword', 'resetPassword'])) {
         $subResource = $path[1];
         $resourceId = $path[2] ?? null;
     } elseif (!in_array($path[1], ['page', 'perPage'])) {
@@ -115,6 +115,8 @@ try {
             elseif ($resource === 'users' && $subResource === 'login') $response = $controller->login($data);
             elseif ($resource === 'users' && $subResource === 'verify') $response = $controller->verifyEmail($data);
             elseif ($resource === 'users' && $subResource === 'resend') $response = $controller->resend($data);
+            elseif ($resource === 'users' && $subResource === 'forgotPassword') $response = $controller->forgotPassword($data);
+            elseif ($resource === 'users' && $subResource === 'resetPassword') $response = $controller->resetPassword($data);
             elseif ($resource === 'orders' && $resourceId !== null && $subResource === null) $response = $controller->create($resourceId, $data);
             elseif ($resource === 'orders' && $subResource === 'refund' && $resourceId !== null) $response = $controller->refund($resourceId, $data);
             elseif ($resource === 'products' && $subResource === null && $resourceId === null) $response = $controller->create($data);

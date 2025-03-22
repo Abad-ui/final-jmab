@@ -108,6 +108,51 @@ class UserController {
             : ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
     }
 
+    public function forgotPassword(array $data) {
+        $email = $data['email'] ?? '';
+
+        if (empty($email)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Email is required.']]
+            ];
+        }
+
+        $result = $this->userModel->forgotPassword($email);
+        if ($result['success']) {
+            $response = [
+                'status' => 200,
+                'body' => ['success' => true, 'message' => $result['message']]
+            ];
+            if (isset($result['warnings'])) {
+                $response['body']['warnings'] = $result['warnings'];
+            }
+            return $response;
+        }
+        return [
+            'status' => 400,
+            'body' => ['success' => false, 'errors' => $result['errors']]
+        ];
+    }
+
+    public function resetPassword(array $data) {
+        $email = $data['email'] ?? '';
+        $resetCode = $data['reset_code'] ?? '';
+        $newPassword = $data['new_password'] ?? '';
+
+        if (empty($email) || empty($resetCode) || empty($newPassword)) {
+            return [
+                'status' => 400,
+                'body' => ['success' => false, 'errors' => ['Email, reset code, and new password are required.']]
+            ];
+        }
+
+        $result = $this->userModel->resetPassword($email, $resetCode, $newPassword);
+        return $result['success']
+            ? ['status' => 200, 'body' => ['success' => true, 'message' => $result['message']]]
+            : ['status' => 400, 'body' => ['success' => false, 'errors' => $result['errors']]];
+    }
+
     public function getAll() {
         $this->authenticateAPI();
         $users = $this->userModel->getUsers();
@@ -125,13 +170,13 @@ class UserController {
             : ['status' => 404, 'body' => ['success' => false, 'errors' => ['User not found.']]];
     }
 
-    public function getAdmins(){
+    public function getAdmins() {
         $this->authenticateAPI();
         $admins = $this->userModel->getAdmins();
         return $admins
             ? ['status' => 200, 'body' => ['success' => true, 'admins' => $admins]]
             : ['status' => 404, 'body' => ['success' => false, 'errors' => ["Admins not found."]]];
-        }
+    }
 
     public function update($id, array $data) {
         $this->authenticateAPI();
