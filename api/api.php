@@ -65,7 +65,7 @@ if (in_array('page', $path) && in_array('perPage', $path)) {
 
 if (isset($path[1])) {
     if (in_array($path[1], ['register', 'login', 'search', 'user', 'conversation', 
-                           'read', 'status', 'order', 'product', 'average', 'variants', 'paymongo', 'refund', 'admins', 'verify', 'resend'])) {
+                           'read', 'status', 'order', 'variant', 'average', 'variants', 'paymongo', 'refund', 'admins', 'verify', 'resend', 'hasRated'])) {
         $subResource = $path[1];
         $resourceId = $path[2] ?? null;
     } elseif (!in_array($path[1], ['page', 'perPage'])) {
@@ -137,7 +137,6 @@ try {
             if ($resource === 'products' && $subResource === 'search') {
                 $filters = $_GET;
                 unset($filters['endpoint']);
-                // Only include pagination params if explicitly requested in path
                 if ($page === null) unset($filters['page'], $filters['perPage']);
                 $response = $controller->search($filters, $page, $perPage);
             } elseif ($resource === 'messages' && $subResource === 'user' && $resourceId !== null) {
@@ -149,10 +148,14 @@ try {
                 $response = $controller->getUserNotifications($resourceId, $page, $perPage);
             } elseif ($resource === 'receipts' && $subResource === 'order' && $resourceId !== null) {
                 $response = $controller->getById($resourceId);
-            } elseif ($resource === 'ratings' && $subResource === 'product' && $resourceId !== null) {
-                $response = $controller->getByProductId($resourceId, $page, $perPage);
+            } elseif ($resource === 'ratings' && $subResource === 'variant' && $resourceId !== null) {
+                $response = $controller->getByVariantId($resourceId, $page, $perPage);
             } elseif ($resource === 'ratings' && $subResource === 'average' && $resourceId !== null) {
                 $response = $controller->getAverageRating($resourceId);
+            } elseif ($resource === 'ratings' && $subResource === 'product' && $resourceId !== null) {
+                $response = $controller->getProductAverageRating($resourceId);
+            } elseif ($resource === 'ratings' && $subResource === 'hasRated' && $resourceId !== null) {
+            $response = $controller->hasUserRated($resourceId);
             } elseif ($resource === 'products' && $subResource === 'variants' && $resourceId === null) {
                 $response = $controller->getVariants();
             } elseif ($resource === 'products' && $subResource === 'variants' && $resourceId !== null) {
@@ -214,7 +217,7 @@ try {
             }
             break;
 
-            default:
+        default:
             throw new Exception('Method not allowed.', 405);
     }
 

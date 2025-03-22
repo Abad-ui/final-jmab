@@ -4,7 +4,7 @@ require_once '../config/database.php';
 class Rating {
     public $conn;
     private $table = 'productratings';
-    public $rating_id, $product_id, $user_id, $rating;
+    public $rating_id, $variant_id, $user_id, $rating;
 
     public function __construct() {
         $this->conn = (new Database())->connect();
@@ -12,7 +12,7 @@ class Rating {
 
     private function validateInput() {
         $errors = [];
-        if (empty($this->product_id)) $errors[] = 'Product ID is required.';
+        if (empty($this->variant_id)) $errors[] = 'Variant ID is required.';
         if (empty($this->user_id)) $errors[] = 'User ID is required.';
         if (empty($this->rating) || !is_numeric($this->rating) || $this->rating < 1 || $this->rating > 5) {
             $errors[] = 'Rating must be a number between 1 and 5.';
@@ -21,7 +21,10 @@ class Rating {
     }
 
     public function getAll($page = null, $perPage = null) {
-        $query = 'SELECT * FROM ' . $this->table . ' ORDER BY rating_id DESC';
+        $query = 'SELECT r.*, pv.product_id 
+                  FROM ' . $this->table . ' r 
+                  JOIN product_variants pv ON r.variant_id = pv.variant_id 
+                  ORDER BY r.rating_id DESC';
         
         $countStmt = null;
         $totalRatings = null;
@@ -58,14 +61,18 @@ class Rating {
         return $result;
     }
 
-    public function getByProductId($product_id, $page = null, $perPage = null) {
-        $query = 'SELECT * FROM ' . $this->table . ' WHERE product_id = :product_id ORDER BY rating_id DESC';
+    public function getByVariantId($variant_id, $page = null, $perPage = null) {
+        $query = 'SELECT r.*, pv.product_id 
+                  FROM ' . $this->table . ' r 
+                  JOIN product_variants pv ON r.variant_id = pv.variant_id 
+                  WHERE r.variant_id = :variant_id 
+                  ORDER BY r.rating_id DESC';
         
         $countStmt = null;
         $totalRatings = null;
         if ($page !== null && $perPage !== null) {
-            $countStmt = $this->conn->prepare('SELECT COUNT(*) FROM ' . $this->table . ' WHERE product_id = :product_id');
-            $countStmt->bindParam(':product_id', $product_id, PDO::PARAM_INT);
+            $countStmt = $this->conn->prepare('SELECT COUNT(*) FROM ' . $this->table . ' WHERE variant_id = :variant_id');
+            $countStmt->bindParam(':variant_id', $variant_id, PDO::PARAM_INT);
             $countStmt->execute();
             $totalRatings = $countStmt->fetchColumn();
 
@@ -74,7 +81,7 @@ class Rating {
         }
 
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':product_id', $product_id, PDO::PARAM_INT);
+        $stmt->bindParam(':variant_id', $variant_id, PDO::PARAM_INT);
         if ($page !== null && $perPage !== null) {
             $stmt->bindParam(':perPage', $perPage, PDO::PARAM_INT);
             $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
@@ -99,22 +106,34 @@ class Rating {
     }
 
     public function getById($rating_id) {
-        $query = 'SELECT * FROM ' . $this->table . ' WHERE rating_id = :rating_id';
+        $query = 'SELECT r.*, pv.product_id 
+                  FROM ' . $this->table . ' r 
+                  JOIN product_variants pv ON r.variant_id = pv.variant_id 
+                  WHERE r.rating_id = :rating_id';
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':rating_id', $rating_id, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
+    public function hasUserRatedVariant($variant_id, $user_id) {
+        $query = 'SELECT COUNT(*) FROM ' . $this->table . ' WHERE variant_id = :variant_id AND user_id = :user_id';
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':variant_id', $variant_id, PDO::PARAM_INT);
+        $stmt->bindParam(':user_id', $user_id, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchColumn() > 0;
+    }
+
     public function createRating() {
         $errors = $this->validateInput();
         if (!empty($errors)) return ['success' => false, 'errors' => $errors];
 
-        $query = 'INSERT INTO ' . $this->table . ' (product_id, user_id, rating) 
-                  VALUES (:product_id, :user_id, :rating)';
+        $query = 'INSERT INTO ' . $this->table . ' (variant_id, user_id, rating) 
+                  VALUES (:variant_id, :user_id, :rating)';
         $stmt = $this->conn->prepare($query);
 
-        $stmt->bindParam(':product_id', $this->product_id);
+        $stmt->bindParam(':variant_id', $this->variant_id);
         $stmt->bindParam(':user_id', $this->user_id);
         $stmt->bindParam(':rating', $this->rating);
 
@@ -175,10 +194,28 @@ class Rating {
         }
     }
 
-    public function getAverageRating($product_id) {
+    public function getAverageRating($variant_id) {
         $query = 'SELECT AVG(rating) as average_rating, COUNT(*) as rating_count 
                   FROM ' . $this->table . ' 
-                  WHERE product_id = :product_id';
+                  WHERE variant_id = :variant_id';
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':variant_id', $variant_id, PDO::PARAM_INT);
+        $stmt->execute();
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return [
+            'success' => true,
+            'average_rating' => round($result['average_rating'], 1) ?: 0,
+            'rating_count' => (int)$result['rating_count']
+        ];
+    }
+
+    // Optional: Add method to get average rating for a product (all variants)
+    public function getProductAverageRating($product_id) {
+        $query = 'SELECT AVG(r.rating) as average_rating, COUNT(*) as rating_count 
+                  FROM ' . $this->table . ' r 
+                  JOIN product_variants pv ON r.variant_id = pv.variant_id 
+                  WHERE pv.product_id = :product_id';
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':product_id', $product_id, PDO::PARAM_INT);
         $stmt->execute();
@@ -190,5 +227,7 @@ class Rating {
             'rating_count' => (int)$result['rating_count']
         ];
     }
+
+
 }
 ?>

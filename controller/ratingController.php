@@ -38,9 +38,9 @@ class RatingController {
         ];
     }
 
-    public function getByProductId($product_id, $page = null, $perPage = null) {
+    public function getByVariantId($variant_id, $page = null, $perPage = null) {
         $this->authenticateAPI();
-        $result = $this->ratingModel->getByProductId($product_id, $page, $perPage);
+        $result = $this->ratingModel->getByVariantId($variant_id, $page, $perPage);
         return [
             'status' => 200,
             'body' => $result
@@ -55,11 +55,31 @@ class RatingController {
             : ['status' => 404, 'body' => ['success' => false, 'errors' => ['Rating not found.']]];
     }
 
-    public function getAverageRating($product_id) {
+    public function getAverageRating($variant_id) {
+        $this->authenticateAPI();
+        $variantExists = $this->productModel->getVariantById($variant_id);
+    
+        if (!$variantExists) {
+            return [
+                'status' => 404,
+                'body' => [
+                    'success' => false, 
+                    'errors' => ['Variant not found.']
+                ]
+            ];
+        }
+        
+        $result = $this->ratingModel->getAverageRating($variant_id);
+        return [
+            'status' => 200,
+            'body' => $result,
+        ];
+    }
+
+    public function getProductAverageRating($product_id) {
         $this->authenticateAPI();
         
-        $productModel = new Product();
-        $product = $productModel->getProductById($product_id);
+        $product = $this->productModel->getProductById($product_id);
         
         if (!$product) {
             return [
@@ -71,26 +91,38 @@ class RatingController {
             ];
         }
         
-        $result = $this->ratingModel->getAverageRating($product_id);
+        $result = $this->ratingModel->getProductAverageRating($product_id);
         return [
             'status' => 200,
             'body' => $result
         ];
     }
 
+    public function hasUserRated($variant_id) {
+        $userData = $this->authenticateAPI();
+        $hasRated = $this->ratingModel->hasUserRatedVariant($variant_id, $userData['sub']);
+        return [
+            'status' => 200,
+            'body' => [
+                'success' => true,
+                'hasRated' => $hasRated
+            ]
+        ];
+    }
+
     public function create(array $data) {
         $userData = $this->authenticateAPI();
         
-        $this->ratingModel->product_id = $data['product_id'] ?? null;
+        $this->ratingModel->variant_id = $data['variant_id'] ?? null;
         $this->ratingModel->user_id = $userData['sub'];
         $this->ratingModel->rating = $data['rating'] ?? null;
 
-        $existingRating = $this->ratingModel->getByProductId($this->ratingModel->product_id);
+        $existingRating = $this->ratingModel->getByVariantId($this->ratingModel->variant_id);
         foreach ($existingRating['ratings'] as $rating) {
             if ($rating['user_id'] == $this->ratingModel->user_id) {
                 return [
                     'status' => 400,
-                    'body' => ['success' => false, 'errors' => ['You have already rated this product. Use update instead.']]
+                    'body' => ['success' => false, 'errors' => ['You have already rated this variant. Use update instead.']]
                 ];
             }
         }
